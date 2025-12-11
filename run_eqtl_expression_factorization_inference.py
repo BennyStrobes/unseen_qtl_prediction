@@ -474,7 +474,7 @@ def main():
 						help='Number of hidden layers in tissue MLP')								
 	parser.add_argument('--learning_rate', default=1e-3, type=float,
 						help='Number of hidden layers in tissue MLP')
-	parser.add_argument('--num_epochs', default=300, type=int,
+	parser.add_argument('--num_epochs', default=40, type=int,
 						help='Number of hidden layers in tissue MLP')
 	parser.add_argument('--batch_size', default=2048, type=int,
 						help='Number of hidden layers in tissue MLP')
@@ -483,7 +483,7 @@ def main():
 	args = parser.parse_args()
 
 
-	np.random.seed(args.random_seed)
+	np.random.seed(args.random_seed + 2)
 	# Validation: number of rows to use (can be < N to save time)
 	N_VAL_ROWS_MAX = 20000000000
 
@@ -494,7 +494,9 @@ def main():
 
 	# Load in estimated eqtl effects
 	eqtl_beta_hat, variant_names_beta, tissue_names_beta = load_in_eqtl_data(args.eqtl_effect_size_file)
+	print('loaded effects')
 	eqtl_beta_hat_se, variant_names_se, tissue_names_se = load_in_eqtl_data(args.eqtl_se_file)
+	print('loaded ses')
 
 	# Load in expression data
 	expression_mat = (np.loadtxt(args.expression_file, dtype=str,delimiter='\t')[1:,:][:,1:]).astype(float)
@@ -565,7 +567,7 @@ def main():
 
 	train_ds = (
 		tf.data.Dataset.from_tensor_slices(all_rows)
-		.shuffle(buffer_size=min(NN, 1_000_000), reshuffle_each_iteration=False)
+		.shuffle(buffer_size=min(NN, 10_000_000), reshuffle_each_iteration=True)
 		.batch(args.batch_size)
 		.prefetch(AUTOTUNE)
 	)

@@ -108,7 +108,7 @@ t_train_beta.write('beta_hat\t' + '\t'.join(original_tissues) + '\n')
 t_train_se.write('beta_hat_se\t' + '\t'.join(original_tissues) + '\n')
 
 
-for chrom_num in range(1,2):
+for chrom_num in range(1,23):
 	print(chrom_num)
 	# Extract ordered array of variant gene pairs found in at least 1 tissue
 	variant_gene_pairs = extract_list_of_variant_gene_pairs_across_all_tissues_on_chrom(original_tissues, processed_gtex_sumstats_dir, str(chrom_num))

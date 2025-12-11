@@ -47,6 +47,9 @@ training_data_dir=${output_root_dir}"training_data/"
 # Training data input directory
 model_training_dir=${output_root_dir}"modeling_training/"
 
+# Training data input directory
+visualization_dir=${output_root_dir}"visualization/"
+
 #########################
 # Scripts
 #########################
@@ -112,8 +115,8 @@ fi
 ##########
 # Prepare training input data
 # TODO: SHOULD SCALE UP TO CHROMOSOMES BEYOND CHR1
-eqtl_effect_size_file=${training_data_dir}"eqtl_effect_sizes_nPCs_"${n_pcs}"_seed"${seed}".txt"
-eqtl_se_file=${training_data_dir}"eqtl_se_nPCs_"${n_pcs}"_seed"${seed}".txt"
+eqtl_effect_size_file=${training_data_dir}"eqtl_effect_sizes_full_nPCs_"${n_pcs}"_seed"${seed}".txt"
+eqtl_se_file=${training_data_dir}"eqtl_se_full_nPCs_"${n_pcs}"_seed"${seed}".txt"
 if false; then
 source ~/.bashrc
 conda activate borzoi
@@ -125,27 +128,28 @@ fi
 # Run inference
 if false; then
 tail -n +2 "$gtex_tissue_names_file" | while IFS= read -r test_tissue; do
-
-	output_stem=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue_"${test_tissue}
+	output_stem=${model_training_dir}"expression_reduced_eqtls_full_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue_"${test_tissue}
 	sbatch run_eqtl_expression_factorization_inference.sh $eqtl_effect_size_file $eqtl_se_file $single_samp_per_tissue_expr_file $test_tissue $gtex_tissue_names_file $output_stem $single_samp_per_tissue_pc_file
 done
 fi
 
 
 
+model_training_output_stem=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue"
+organized_results_file=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_organized_test_results.txt"
+if false; then
+source ~/.bashrc
+conda activate borzoi
+python organize_qtl_prediction_results.py $model_training_output_stem $gtex_tissue_names_file $processed_gtex_sumstats_dir $organized_results_file
+fi
 
 
 
-
-
-
-
-
-
-
-
-
-
+if false; then
+source ~/.bashrc
+conda activate plink_env
+Rscript visualize_results.R $organized_results_file $visualization_dir
+fi
 
 
 

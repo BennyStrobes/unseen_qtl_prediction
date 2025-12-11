@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH -t 0-2:30                         # Runtime in D-HH:MM format
+#SBATCH -t 0-12:30                         # Runtime in D-HH:MM format
 #SBATCH -p bch-compute                        # Partition to run in
-#SBATCH --mem=10GB 
+#SBATCH --mem=25GB 
 
 
 
@@ -12,10 +12,13 @@ test_tissue="${4}"
 gtex_tissue_names_file="${5}"
 output_stem="${6}"
 single_samp_per_tissue_pc_file="${7}"
+KK="${8}"
 
 
 source ~/.bashrc
 conda activate borzoi
+
+echo ${test_tissue}
 
 echo "Factorization"
 python run_eqtl_expression_factorization_inference.py \
@@ -24,6 +27,7 @@ python run_eqtl_expression_factorization_inference.py \
   --expression_file "$single_samp_per_tissue_training_pc_file" \
   --test_tissue_list $test_tissue \
   --tissue_file $gtex_tissue_names_file \
+  --KK ${KK} \
   --output_stem "$output_stem"
 
 
