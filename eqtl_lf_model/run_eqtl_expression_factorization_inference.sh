@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH -t 0-12:30                         # Runtime in D-HH:MM format
+#SBATCH -t 0-18:30                         # Runtime in D-HH:MM format
 #SBATCH -p bch-compute                        # Partition to run in
-#SBATCH --mem=25GB 
+#SBATCH --mem=15GB 
 
 
 
@@ -12,12 +12,11 @@ test_tissue="${4}"
 gtex_tissue_names_file="${5}"
 output_stem="${6}"
 single_samp_per_tissue_pc_file="${7}"
-KK="${8}"
 
+KK="10"
 
 source ~/.bashrc
 conda activate borzoi
-
 echo ${test_tissue}
 
 echo "Factorization"
@@ -28,11 +27,13 @@ python run_eqtl_expression_factorization_inference.py \
   --test_tissue_list $test_tissue \
   --tissue_file $gtex_tissue_names_file \
   --KK ${KK} \
+  --tissue_mlp_hidden "64" \
+  --learning_rate 5e-4 \
   --output_stem "$output_stem"
 
 
-echo "Nearest neighbor"
 
+echo "Nearest neighbor"
 python predict_eqtls_from_nearest_tissue.py \
   --eqtl_effect_size_file "$train_eqtl_effect_size_file" \
   --eqtl_se_file "$train_eqtl_se_file" \
@@ -40,3 +41,14 @@ python predict_eqtls_from_nearest_tissue.py \
   --test_tissue_list $test_tissue \
   --tissue_file $gtex_tissue_names_file \
   --output_stem "$output_stem"
+
+
+echo "Random tissue"
+python predict_eqtls_from_random_tissue.py \
+  --eqtl_effect_size_file "$train_eqtl_effect_size_file" \
+  --eqtl_se_file "$train_eqtl_se_file" \
+  --expression_file "$single_samp_per_tissue_pc_file" \
+  --test_tissue_list $test_tissue \
+  --tissue_file $gtex_tissue_names_file \
+  --output_stem "$output_stem"
+

@@ -4,7 +4,7 @@ import sys
 import pdb
 
 
-def extract_tissue_names(training_tissue_file):
+def extract_tissue_names(training_tissue_file, valid_tissues):
 	f = open(training_tissue_file)
 	head_count = 0
 	arr = []
@@ -13,12 +13,22 @@ def extract_tissue_names(training_tissue_file):
 		if head_count == 0:
 			head_count = head_count + 1
 			continue
+		if line not in valid_tissues:
+			continue
 		arr.append(line)
 	f.close()
 	return np.asarray(arr)
 
 
-
+def extract_valid_tissues(fine_map):
+	f = open(fine_map)
+	dicti = {}
+	for line in f:
+		line = line.rstrip()
+		data = line.split('\t')
+		dicti[data[10]] = 1
+	f.close()
+	return dicti
 
 #####################
 # Command line args
@@ -29,16 +39,20 @@ output_file = sys.argv[3]
 seed = int(sys.argv[4])
 expression_file = sys.argv[5]
 expression_output_file = sys.argv[6]
+fine_map = sys.argv[7]
+
+valid_tissues = extract_valid_tissues(fine_map)
 
 np.random.seed(seed)
 
-ordered_tissue_names = extract_tissue_names(tissue_file)
+ordered_tissue_names = extract_tissue_names(tissue_file, valid_tissues)
 
 
 # Load in existing expression pc file
 old_expr_pc_raw = np.loadtxt(expression_pc_file, dtype=str,delimiter='\t')
 header_column = old_expr_pc_raw[:,0]
 old_expr_pc = old_expr_pc_raw[:,1:]
+
 
 
 new_indices = []

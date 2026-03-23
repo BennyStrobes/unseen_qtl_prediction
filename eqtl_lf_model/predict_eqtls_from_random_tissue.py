@@ -96,7 +96,9 @@ def get_test_losses(model_preds, model_preds_mask, beta_test, se_test, mask_test
 	test_corrz = np.asarray(test_corrz)
 	test_corrz_ses = np.asarray(test_corrz_ses)
 
-	return test_losses, test_losses_ses, test_corrz, test_corrz_ses
+
+
+	return test_losses, test_losses_ses, test_corrz, test_corrz_ses, tmp_model_preds[tmp_mask], tmp_beta_test[tmp_mask], tmp_se_test[tmp_mask]
 
 def load_in_ordered_tissue_names(tissue_file, expression_file):
 	tissue_names = []
@@ -242,6 +244,7 @@ def main():
 	nearest_tissue_distances = []
 	for test_iter, tissue_name in enumerate(test_tissues):
 		nearest_training_tissue_index, min_dist = get_nearest_training_tissue_index(X_test_t[test_iter,:], X_train_t)
+		nearest_training_tissue_index = np.random.choice(X_train_t.shape[0])
 		preds.append(np.copy(beta_train[:, nearest_training_tissue_index]))
 		preds_mask.append(np.copy(mask_train[:, nearest_training_tissue_index]))
 		nearest_tissues.append(train_tissues[nearest_training_tissue_index])
@@ -254,11 +257,11 @@ def main():
 
 
 	# Get test losses
-	test_losses, test_losses_ses, test_corrz, test_corrz_ses = get_test_losses(preds, preds_mask, beta_test, se_test, mask_test)
+	test_losses, test_losses_ses, test_corrz, test_corrz_ses, test_beta_preds, test_betas, test_beta_se = get_test_losses(preds, preds_mask, beta_test, se_test, mask_test)
 
 	# Print test losses to output
 	# Open output file
-	test_loss_output_file = args.output_stem + '_nearest_tissue_pred_test_loss_summary.txt'
+	test_loss_output_file = args.output_stem + '_random_tissue_pred_test_loss_summary.txt'
 	t = open(test_loss_output_file,'w')
 	t.write('tissue\tloss\tloss_se\tcorrelation\tcorrelation_se\n')
 	# Loop through tissues
@@ -267,14 +270,18 @@ def main():
 	t.close()
 	print(test_loss_output_file)
 
+
+
+	# Print test losses to output
 	# Open output file
-	nearest_tissue_summary_file = args.output_stem + '_nearest_tissue_summary.txt'
-	t = open(nearest_tissue_summary_file,'w')
-	t.write('test_tissue\tnearest_tissue\tdistance\n')
-	for ii, tissue_name in enumerate(test_tissues):
-		t.write(tissue_name + '\t' + nearest_tissues[ii] + '\t' + str(nearest_tissue_distances[ii]) + '\n')
+	test_loss_output_file = args.output_stem + '_random_tissue_test_preds.txt'
+	t = open(test_loss_output_file,'w')
+	t.write('beta\tbeta_se\tpred_beta\n')
+	# Loop through tissues
+	for ii, test_beta_pred in enumerate(test_beta_preds):
+		t.write(str(test_betas[ii]) + '\t' + str(test_beta_se[ii]) + '\t' + str(test_beta_pred) + '\n')
 	t.close()
-	print(nearest_tissue_summary_file)
+
 
 	return
 

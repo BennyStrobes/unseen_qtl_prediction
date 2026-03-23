@@ -24,7 +24,7 @@ genotype_dir_1000_G="/lab-share/CHIP-Strober-e2/Public/1000G_Phase3/hg38/"
 # Gencode gene annotation file
 gencode_gene_annotation_file="/lab-share/CHIP-Strober-e2/Public/gene_annotation_files/gencode.v39.gtex.protein_coding.genes.gtf"
 
-
+fine_map_summary_file="/lab-share/CHIP-Strober-e2/Public/GTEx/fine_mapping/v8/GTEx_49tissues_release1.tsv"
 
 #########################
 # Output data
@@ -107,7 +107,7 @@ single_samp_per_tissue_expr_file=${training_data_dir}"single_sample_per_tissue_e
 if false; then
 source ~/.bashrc
 conda activate borzoi
-python randomly_select_single_sample_for_each_tissue.py $expression_pc_file $gtex_tissue_names_file $single_samp_per_tissue_pc_file $seed $processed_all_sample_expression_file $single_samp_per_tissue_expr_file
+python randomly_select_single_sample_for_each_tissue.py $expression_pc_file $gtex_tissue_names_file $single_samp_per_tissue_pc_file $seed $processed_all_sample_expression_file $single_samp_per_tissue_expr_file $fine_map_summary_file
 fi
 
 
@@ -116,40 +116,76 @@ fi
 # Prepare training input data
 # TODO: SHOULD SCALE UP TO CHROMOSOMES BEYOND CHR1
 eqtl_effect_size_file=${training_data_dir}"eqtl_effect_sizes_full_nPCs_"${n_pcs}"_seed"${seed}".txt"
+eqtl_effect_size_file=${training_data_dir}"eqtl_effect_sizes_nPCs_"${n_pcs}"_seed"${seed}".txt"
+
 eqtl_se_file=${training_data_dir}"eqtl_se_full_nPCs_"${n_pcs}"_seed"${seed}".txt"
+eqtl_se_file=${training_data_dir}"eqtl_se_nPCs_"${n_pcs}"_seed"${seed}".txt"
 if false; then
 source ~/.bashrc
 conda activate borzoi
 python prepare_eqtl_data_for_training.py $eqtl_effect_size_file $eqtl_se_file $single_samp_per_tissue_pc_file $processed_gtex_sumstats_dir
 fi
 
+pmces_eqtl_effect_size_file=${training_data_dir}"pmces_eqtl_effect_sizes_nPCs_"${n_pcs}"_seed"${seed}".txt"
+pmces_se_eqtl_effect_size_file=${training_data_dir}"pmces_eqtl_se_nPCs_"${n_pcs}"_seed"${seed}".txt"
+
+if false; then
+source ~/.bashrc
+conda activate borzoi
+python generate_pmces_data.py $pmces_eqtl_effect_size_file $pmces_se_eqtl_effect_size_file $eqtl_effect_size_file $eqtl_se_file $fine_map_summary_file
+fi
+
+
+gtex_tissue_names_file2="/lab-share/CHIP-Strober-e2/Public/ben/unseen_qtl_prediction/marginal_predictions/tissue_names/gtex_tissue_names2.txt"
 
 ##########
 # Run inference
 if false; then
-tail -n +2 "$gtex_tissue_names_file" | while IFS= read -r test_tissue; do
-	output_stem=${model_training_dir}"expression_reduced_eqtls_full_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue_"${test_tissue}
-	sbatch run_eqtl_expression_factorization_inference.sh $eqtl_effect_size_file $eqtl_se_file $single_samp_per_tissue_expr_file $test_tissue $gtex_tissue_names_file $output_stem $single_samp_per_tissue_pc_file
+tail -n +2 "$gtex_tissue_names_file2" | while IFS= read -r test_tissue; do
+	output_stem=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue_"${test_tissue}"_het_var_multi_restart_nearest_tissues"
+	sbatch run_eqtl_expression_factorization_inference.sh $eqtl_effect_size_file $eqtl_se_file $single_samp_per_tissue_expr_file $test_tissue $gtex_tissue_names_file2 $output_stem $single_samp_per_tissue_pc_file
 done
 fi
 
 
 
-model_training_output_stem=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue"
-organized_results_file=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_organized_test_results.txt"
+gtex_tissue_names_file2="/lab-share/CHIP-Strober-e2/Public/ben/unseen_qtl_prediction/marginal_predictions/tissue_names/gtex_tissue_names2.txt"
 if false; then
-source ~/.bashrc
-conda activate borzoi
-python organize_qtl_prediction_results.py $model_training_output_stem $gtex_tissue_names_file $processed_gtex_sumstats_dir $organized_results_file
+test_tissue="Thyroid"
+output_stem=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue_"${test_tissue}"_het_var_multi_restart_nearest_tissues"
+sh run_eqtl_expression_factorization_inference.sh $eqtl_effect_size_file $eqtl_se_file $single_samp_per_tissue_expr_file $test_tissue $gtex_tissue_names_file2 $output_stem $single_samp_per_tissue_pc_file
 fi
 
 
+
+
+gtex_tissue_names_file2="/lab-share/CHIP-Strober-e2/Public/ben/unseen_qtl_prediction/marginal_predictions/tissue_names/gtex_tissue_names2.txt"
+
+test_tissue="Skin_Not_Sun_Exposed_Suprapubic"
+output_stem=${model_training_dir}"pmces_expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue_"${test_tissue}"_het_var"
+if false; then
+sh run_eqtl_expression_factorization_inference.sh $pmces_eqtl_effect_size_file $pmces_se_eqtl_effect_size_file $single_samp_per_tissue_expr_file $test_tissue $gtex_tissue_names_file2 $output_stem $single_samp_per_tissue_pc_file
+fi
+
+
+
+model_training_output_stem=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_test_tissue"
+organized_results_file=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_het_var_multi_restart_nearest_tissues_organized_test_results.txt"
+if false; then
+source ~/.bashrc
+conda activate borzoi
+python organize_qtl_prediction_results.py $model_training_output_stem $gtex_tissue_names_file2 $processed_gtex_sumstats_dir $organized_results_file
+fi
+
+organized_results_file=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_organized_test_results.txt"
+organized_results_file2=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_het_var_organized_test_results.txt"
 
 if false; then
 source ~/.bashrc
 conda activate plink_env
-Rscript visualize_results.R $organized_results_file $visualization_dir
 fi
+Rscript visualize_results.R $organized_results_file $organized_results_file2 $visualization_dir
+
 
 
 
