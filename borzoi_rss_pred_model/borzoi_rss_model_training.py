@@ -28,37 +28,35 @@ def load_in_tissue_names(gtex_tissue_names_file):
 	return np.asarray(arr)
 
 
-def load_in_gene_based_model_data(prediction_input_data_summary_file, min_snps_per_gene=50):
-	f = open(prediction_input_data_summary_file)
-	head_count = 0
-	counter = 0
+def load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_snps_per_gene=50):
 	arr = []
-	max_zeds = []
-	#indices = []
-	for line in f:
-		line = line.rstrip()
-		data = line.split('\t')
-		if head_count == 0:
-			head_count = head_count + 1
-			continue
-		gene_name = data[0]
-		snp_summary_file = data[1]
-		zed_file = data[2]
-		N_eff_file = data[3]
-		ld_file = data[4]
-		borzoi_file = data[5]
-		n_snps_per_gene = int(data[7])
-		if n_snps_per_gene < min_snps_per_gene:
-			continue
-		counter = counter + 1
+	for chrom_num in range(1,3):
+		f = open(prediction_input_data_summary_filestem + str(chrom_num) + '.txt')
+		head_count = 0
+		counter = 0
+		max_zeds = []
+		#indices = []
+		for line in f:
+			line = line.rstrip()
+			data = line.split('\t')
+			if head_count == 0:
+				head_count = head_count + 1
+				continue
+			gene_name = data[0]
+			snp_summary_file = data[1]
+			zed_file = data[2]
+			N_eff_file = data[3]
+			ld_file = data[4]
+			borzoi_file = data[5]
+			n_snps_per_gene = int(data[7])
+			if n_snps_per_gene < min_snps_per_gene:
+				continue
+			counter = counter + 1
 
-		#zeds = np.load(zed_file)
-		#max_zed = np.max(np.abs(zeds[np.isnan(zeds)==False]))
-
-		#max_zeds.append(max_zed)
-		arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, borzoi_file, n_snps_per_gene))
-		#indices.append(counter)
-	f.close()
+			#if np.random.choice(np.arange(5))==1:
+			arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, borzoi_file, n_snps_per_gene))
+			#indices.append(counter)
+		f.close()
 
 	#indices = np.asarray(indices)
 	#print(indices)
@@ -131,16 +129,18 @@ def parse_args():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--gtex-tissue-names-file', required=True, type=str)
 	parser.add_argument('--single-samp-per-tissue-expr-file', required=True, type=str)
-	parser.add_argument('--prediction-input-data-summary-file', required=True, type=str)
+	parser.add_argument('--prediction-input-data-summary-filestem', required=True, type=str)
 	parser.add_argument('--test-tissue', required=True, type=str)
 	parser.add_argument('--model-training-output-stem', required=True, type=str)
 	parser.add_argument('--n-val-tissues', required=False, type=int, default=5)
-	parser.add_argument('--learning-rate', required=False, type=float, default=1e-3)
+	parser.add_argument('--learning-rate', required=False, type=float, default=3e-4)
+	parser.add_argument('--l2-tissue-reg-strength', required=False, type=float, default=1e-5)
+	parser.add_argument('--l2-variant-reg-strength', required=False, type=float, default=1.0)
+	parser.add_argument('--variant-encoder-architecture', required=False, type=str, default='128,64,32')
 	return parser.parse_args()
 
 
-def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_expression_data, train_tissue_indices, val_tissue_indices, learning_rate, max_epochs=100, use_held_out_genes_for_validation=True):
-	print(max_epochs)
+def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_expression_data, train_tissue_indices, val_tissue_indices, learning_rate, l2_tissue_reg_strength, l2_variant_reg_strength, variant_encoder_architecture, max_epochs=100, use_held_out_genes_for_validation=True):
 	# Load in number data dimensions
 	n_borzoi_dimensions = np.load(train_gene_based_model_data[0][5]).shape[1]
 	n_expr_gene_dimensions = gene_expression_data.shape[0]
@@ -158,21 +158,23 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 	optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
 	# Tissue encoder: reduces high-dimensional tissue expression to a compact embedding.
-	l2_reg_tissue = tf.keras.regularizers.l2(1e-5)
-	l2_reg_variant = tf.keras.regularizers.l2(1e0)
-	#l2_reg_tissue = tf.keras.regularizers.l2(0.0)
-	#l2_reg_variant = tf.keras.regularizers.l2(0.0)
+	l2_reg_tissue = tf.keras.regularizers.l2(l2_tissue_reg_strength)
+	l2_reg_variant = tf.keras.regularizers.l2(l2_variant_reg_strength)
 	tissue_input = tf.keras.Input(shape=(n_expr_gene_dimensions,), name='tissue_expression_input')
-	tissue_hidden = tf.keras.layers.Dense(128, activation='relu', kernel_regularizer=l2_reg_tissue, name='tissue_dense_1')(tissue_input)
+	tissue_hidden = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=l2_reg_tissue, name='tissue_dense_1')(tissue_input)
 	tissue_hidden = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=l2_reg_tissue, name='tissue_dense_2')(tissue_hidden)
 	tissue_embedding = tf.keras.layers.Dense(32, activation='linear', kernel_regularizer=l2_reg_tissue, name='tissue_embedding')(tissue_hidden)
 	tissue_encoder = tf.keras.Model(inputs=tissue_input, outputs=tissue_embedding, name='tissue_encoder')
 
 	# Variant encoder: maps Borzoi predictions into the same low-dimensional space as tissues.
+	architecture_sizes = [int(layer_size) for layer_size in variant_encoder_architecture.split(',') if layer_size != '']
+	if len(architecture_sizes) < 1:
+		raise ValueError('variant_encoder_architecture must contain at least one layer size')
 	borzoi_input = tf.keras.Input(shape=(n_borzoi_dimensions,), name='borzoi_input')
-	borzoi_hidden = tf.keras.layers.Dense(128, activation='relu', kernel_regularizer=l2_reg_variant, name='borzoi_dense_1')(borzoi_input)
-	borzoi_hidden = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=l2_reg_variant, name='borzoi_dense_2')(borzoi_hidden)
-	variant_embedding = tf.keras.layers.Dense(32, activation='linear', kernel_regularizer=l2_reg_variant, name='variant_embedding')(borzoi_hidden)
+	borzoi_hidden = borzoi_input
+	for layer_num, layer_size in enumerate(architecture_sizes[:-1], start=1):
+		borzoi_hidden = tf.keras.layers.Dense(layer_size, activation='relu', kernel_regularizer=l2_reg_variant, name='borzoi_dense_' + str(layer_num))(borzoi_hidden)
+	variant_embedding = tf.keras.layers.Dense(architecture_sizes[-1], activation='linear', kernel_regularizer=l2_reg_variant, name='variant_embedding')(borzoi_hidden)
 	variant_encoder = tf.keras.Model(inputs=borzoi_input, outputs=variant_embedding, name='variant_encoder')
 
 	train_tissue_expression_tf = tf.convert_to_tensor(gene_expression_data[:, train_tissue_indices].T.astype(np.float32))
@@ -183,32 +185,38 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 		variant_embeddings_tf = variant_encoder(gene_borzoi_preds_tf, training=training)
 		return tf.matmul(variant_embeddings_tf, tissue_embeddings_tf, transpose_b=True)
 
-	def compute_observed_and_predicted_gene_zeds(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, tissue_expression_tf, training):
+	def compute_observed_and_predicted_gene_zeds(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, tissue_expression_tf, gene_afs_tf, training):
 		beta_mat = compute_beta_mat(gene_borzoi_preds_tf, tissue_expression_tf, training=training)
 		valid_mask = ~tf.math.is_nan(gene_zeds_tf)
-		pred_gene_zeds = tf.sqrt(gene_N_eff_tf[valid_mask]) * (tf.matmul(gene_LD_tf, beta_mat))[valid_mask]
+		genotype_sd = tf.sqrt(2.0 * gene_afs_tf * (1.0 - gene_afs_tf))
+		beta_std_mat = beta_mat * genotype_sd[:, None]
+		pred_gene_zeds = tf.sqrt(gene_N_eff_tf[valid_mask]) * (tf.matmul(gene_LD_tf, beta_std_mat))[valid_mask]
 		obs_gene_zeds = gene_zeds_tf[valid_mask]
-		return obs_gene_zeds, pred_gene_zeds
+		return obs_gene_zeds, pred_gene_zeds, valid_mask
 
-	def compute_gene_loss(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, tissue_expression_tf, training):
+	def compute_gene_loss(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, tissue_expression_tf, gene_afs_tf, training):
 		if tissue_expression_tf.shape[0] == 0:
 			return tf.constant(0.0, dtype=tf.float32)
 
-		obs_gene_zeds, pred_gene_zeds = compute_observed_and_predicted_gene_zeds(
+		obs_gene_zeds, pred_gene_zeds, valid_mask = compute_observed_and_predicted_gene_zeds(
 			gene_borzoi_preds_tf,
 			gene_zeds_tf,
 			gene_N_eff_tf,
 			gene_LD_tf,
 			tissue_expression_tf,
+			gene_afs_tf,
 			training
 		)
 		residuals = obs_gene_zeds - pred_gene_zeds
 
 		ld_scores = tf.reduce_sum(tf.square(gene_LD_tf), axis=1)
-		effective_num_snps = tf.cast(tf.shape(ld_scores)[0], tf.float32) / tf.reduce_mean(ld_scores)
+		ld_scores_mat = tf.broadcast_to(ld_scores[:, None], tf.shape(gene_zeds_tf))  # (n_snps, n_tissues)
+		valid_ld_scores = ld_scores_mat[valid_mask]  
+
+		#effective_num_snps = tf.cast(tf.shape(ld_scores)[0], tf.float32) / tf.reduce_mean(ld_scores)
 		#effective_num_obs = tf.reduce_sum(tf.cast(valid_mask, tf.float32))/tf.reduce_mean(ld_scores)
 
-		return 0.5 * effective_num_snps * tf.reduce_mean(tf.square(residuals))
+		return tf.reduce_sum(tf.square(residuals)/valid_ld_scores)
 
 	@tf.function(
 		input_signature=[
@@ -216,10 +224,11 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
 			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
 			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
+			tf.TensorSpec(shape=[None], dtype=tf.float32),
 		],
 		reduce_retracing=True
 	)
-	def train_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf):
+	def train_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, gene_afs_tf):
 		with tf.GradientTape() as tape:
 			train_loss = compute_gene_loss(
 				gene_borzoi_preds_tf,
@@ -227,31 +236,13 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 				gene_N_eff_tf,
 				gene_LD_tf,
 				train_tissue_expression_tf,
+				gene_afs_tf,
 				training=True
 			)
 		trainable_variables = tissue_encoder.trainable_variables + variant_encoder.trainable_variables
 		gradients = tape.gradient(train_loss, trainable_variables)
 		optimizer.apply_gradients(zip(gradients, trainable_variables))
 		return train_loss
-
-	@tf.function(
-		input_signature=[
-			tf.TensorSpec(shape=[None, n_borzoi_dimensions], dtype=tf.float32),
-			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
-			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
-			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
-		],
-		reduce_retracing=True
-	)
-	def eval_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf):
-		return compute_gene_loss(
-			gene_borzoi_preds_tf,
-			gene_zeds_tf,
-			gene_N_eff_tf,
-			gene_LD_tf,
-			val_tissue_expression_tf,
-			training=False
-		)
 
 	# Epoch training
 	for epoch_iter in range(max_epochs):
@@ -265,6 +256,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 			gene_borzoi_preds = load_in_standardized_gene_borzoi_preds(gene_borzoi_pred_file, borzoi_feature_means, borzoi_feature_inv_sdevs)
 			gene_zeds = np.load(gene_zed_file)
 			gene_N_eff = np.load(gene_N_eff_file)
+			gene_afs = np.loadtxt(gene_snp_summary_file,dtype=str)[1:,-1].astype(float)
 			valid_row_indices = np.where(~np.isnan(gene_borzoi_preds).any(axis=1))[0]
 			if len(valid_row_indices) == 0:
 				continue
@@ -272,12 +264,14 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 			gene_borzoi_preds = gene_borzoi_preds[valid_row_indices, :]
 			gene_N_eff = gene_N_eff[valid_row_indices, :][:, train_tissue_indices]
 			gene_zeds = gene_zeds[valid_row_indices, :][:, train_tissue_indices]
+			gene_afs = gene_afs[valid_row_indices]
 
 			gene_LD_tf = tf.convert_to_tensor(gene_LD.astype(np.float32))
 			gene_borzoi_preds_tf = tf.convert_to_tensor(gene_borzoi_preds.astype(np.float32))
 			gene_N_eff_tf = tf.convert_to_tensor(gene_N_eff.astype(np.float32))
 			gene_zeds_tf = tf.convert_to_tensor(gene_zeds.astype(np.float32))
-			train_loss = train_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf)
+			gene_afs_tf = tf.convert_to_tensor(gene_afs.astype(np.float32))
+			train_loss = train_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, gene_afs_tf)
 			epoch_train_losses.append(train_loss.numpy())
 
 		epoch_val_losses = []
@@ -287,6 +281,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 			gene_borzoi_preds = load_in_standardized_gene_borzoi_preds(gene_borzoi_pred_file, borzoi_feature_means, borzoi_feature_inv_sdevs)
 			gene_zeds = np.load(gene_zed_file)
 			gene_N_eff = np.load(gene_N_eff_file)
+			gene_afs = np.loadtxt(gene_snp_summary_file,dtype=str)[1:,-1].astype(float)
 			valid_row_indices = np.where(~np.isnan(gene_borzoi_preds).any(axis=1))[0]
 			if len(valid_row_indices) == 0:
 				continue
@@ -294,23 +289,26 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 			gene_borzoi_preds = gene_borzoi_preds[valid_row_indices, :]
 			gene_N_eff = gene_N_eff[valid_row_indices, :][:, val_tissue_indices]
 			gene_zeds = gene_zeds[valid_row_indices, :][:, val_tissue_indices]
+			gene_afs = gene_afs[valid_row_indices]
 			gene_LD_tf = tf.convert_to_tensor(gene_LD.astype(np.float32))
 			gene_borzoi_preds_tf = tf.convert_to_tensor(gene_borzoi_preds.astype(np.float32))
 			gene_N_eff_tf = tf.convert_to_tensor(gene_N_eff.astype(np.float32))
 			gene_zeds_tf = tf.convert_to_tensor(gene_zeds.astype(np.float32))
-			#val_loss = eval_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf)
-			obs_gene_zeds, pred_gene_zeds = compute_observed_and_predicted_gene_zeds(
+			gene_afs_tf = tf.convert_to_tensor(gene_afs.astype(np.float32))
+			obs_gene_zeds, pred_gene_zeds, valid_mask  = compute_observed_and_predicted_gene_zeds(
 				gene_borzoi_preds_tf,
 				gene_zeds_tf,
 				gene_N_eff_tf,
 				gene_LD_tf,
 				val_tissue_expression_tf,
+				gene_afs_tf,
 				training=False
 			)
 			residuals = obs_gene_zeds - pred_gene_zeds
 			ld_scores = tf.reduce_sum(tf.square(gene_LD_tf), axis=1)
-			effective_num_snps = tf.cast(tf.shape(ld_scores)[0], tf.float32) / tf.reduce_mean(ld_scores)
-			val_loss = 0.5 * effective_num_snps * tf.reduce_mean(tf.square(residuals))
+			ld_scores_mat = tf.broadcast_to(ld_scores[:, None], tf.shape(gene_zeds_tf))
+			valid_ld_scores = ld_scores_mat[valid_mask]
+			val_loss = tf.reduce_sum(tf.square(residuals) / valid_ld_scores)
 
 			if tf.size(obs_gene_zeds) > 1:
 				gene_corr = np.corrcoef(obs_gene_zeds.numpy(), pred_gene_zeds.numpy())[0, 1]
@@ -371,6 +369,7 @@ def evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train
 			gene_borzoi_preds = load_in_standardized_gene_borzoi_preds(gene_borzoi_pred_file, borzoi_feature_means, borzoi_feature_inv_sdevs)
 			gene_zeds = np.load(gene_zed_file)
 			gene_N_eff = np.load(gene_N_eff_file)
+			gene_afs = np.loadtxt(gene_snp_summary_file, dtype=str)[1:, -1].astype(float)
 			valid_row_indices = np.where(~np.isnan(gene_borzoi_preds).any(axis=1))[0]
 			if len(valid_row_indices) == 0:
 				t.write(gene_name + '\t' + gene_split + '\t' + str(n_gene_snps) + '\tnan\tnan\tnan\n')
@@ -380,27 +379,32 @@ def evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train
 			gene_borzoi_preds = gene_borzoi_preds[valid_row_indices, :]
 			gene_N_eff = gene_N_eff[valid_row_indices, :][:, [test_tissue_index]]
 			gene_zeds = gene_zeds[valid_row_indices, :][:, [test_tissue_index]]
+			gene_afs = gene_afs[valid_row_indices]
 
 			gene_LD_tf = tf.convert_to_tensor(gene_LD.astype(np.float32))
 			gene_borzoi_preds_tf = tf.convert_to_tensor(gene_borzoi_preds.astype(np.float32))
 			gene_N_eff_tf = tf.convert_to_tensor(gene_N_eff.astype(np.float32))
 			gene_zeds_tf = tf.convert_to_tensor(gene_zeds.astype(np.float32))
+			gene_afs_tf = tf.convert_to_tensor(gene_afs.astype(np.float32))
 
 			tissue_embeddings_tf = tissue_encoder(test_tissue_expression_tf, training=False)
 			variant_embeddings_tf = variant_encoder(gene_borzoi_preds_tf, training=False)
 			beta_mat = tf.matmul(variant_embeddings_tf, tissue_embeddings_tf, transpose_b=True)
+			genotype_sd = tf.sqrt(2.0 * gene_afs_tf * (1.0 - gene_afs_tf))
+			beta_std_mat = beta_mat * genotype_sd[:, None]
 			valid_mask = ~tf.math.is_nan(gene_zeds_tf)
-			pred_gene_zeds = tf.sqrt(gene_N_eff_tf[valid_mask]) * (tf.matmul(gene_LD_tf, beta_mat))[valid_mask]
+			pred_gene_zeds = tf.sqrt(gene_N_eff_tf[valid_mask]) * (tf.matmul(gene_LD_tf, beta_std_mat))[valid_mask]
 			obs_gene_zeds = gene_zeds_tf[valid_mask]
 			residuals = obs_gene_zeds - pred_gene_zeds
 			ld_scores = tf.reduce_sum(tf.square(gene_LD_tf), axis=1)
-			effective_num_snps = tf.cast(tf.shape(ld_scores)[0], tf.float32) / tf.reduce_mean(ld_scores)
-			gene_loss = (0.5 * effective_num_snps * tf.reduce_mean(tf.square(residuals))).numpy()
+			ld_scores_mat = tf.broadcast_to(ld_scores[:, None], tf.shape(gene_zeds_tf))
+			valid_ld_scores = tf.maximum(ld_scores_mat[valid_mask], 1e-8)
+			gene_loss = tf.reduce_sum(tf.square(residuals) / valid_ld_scores).numpy()
 
 			if tf.size(obs_gene_zeds) > 1:
 				gene_corr = np.corrcoef(obs_gene_zeds.numpy(), pred_gene_zeds.numpy())[0, 1]
 				std_beta = obs_gene_zeds.numpy()/(np.sqrt(gene_N_eff_tf.numpy())[:,0])
-				est_causal_effects = beta_mat.numpy()[:,0]
+				est_causal_effects = beta_std_mat.numpy()[:,0]
 				expr_corr = np.dot(std_beta, est_causal_effects)/np.sqrt(np.dot(np.dot(est_causal_effects, gene_LD),est_causal_effects))
 			else:
 				gene_corr = np.nan
@@ -417,11 +421,14 @@ def main():
 	############################
 	gtex_tissue_names_file = args.gtex_tissue_names_file
 	single_samp_per_tissue_expr_file = args.single_samp_per_tissue_expr_file
-	prediction_input_data_summary_file = args.prediction_input_data_summary_file
+	prediction_input_data_summary_filestem = args.prediction_input_data_summary_filestem
 	test_tissue = args.test_tissue
 	model_training_output_stem = args.model_training_output_stem
 	n_val_tissues = args.n_val_tissues
 	learning_rate = args.learning_rate
+	l2_tissue_reg_strength = args.l2_tissue_reg_strength
+	l2_variant_reg_strength = args.l2_variant_reg_strength
+	variant_encoder_architecture = args.variant_encoder_architecture
 
 	np.random.seed(1)
 
@@ -444,7 +451,7 @@ def main():
 	val_tissue_names = all_tissue_names[val_tissue_indices]
 
 	# Load in gene-based model training/evaluation data
-	gene_based_model_data = load_in_gene_based_model_data(prediction_input_data_summary_file, min_snps_per_gene=50)
+	gene_based_model_data = load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_snps_per_gene=50)
 	tot_n_genes = len(gene_based_model_data)
 	n_train_val_genes = int(np.floor(tot_n_genes*.8))
 	# Split into train/val and test
@@ -466,11 +473,23 @@ def main():
 	###########################
 	# Ready for model training
 	############################
-	max_epochs=100
+	max_epochs=25
 	use_held_out_genes_for_validation=True
 	train_gene_based_model_data, val_gene_based_model_data = split_train_and_val_gene_based_model_data(train_val_gene_based_model_data, use_held_out_genes_for_validation)
 	# Train
-	tissue_encoder, variant_encoder = train_model(train_gene_based_model_data, val_gene_based_model_data, gene_expression_data, train_tissue_indices, val_tissue_indices, learning_rate, max_epochs=max_epochs, use_held_out_genes_for_validation=use_held_out_genes_for_validation)
+	tissue_encoder, variant_encoder = train_model(
+		train_gene_based_model_data,
+		val_gene_based_model_data,
+		gene_expression_data,
+		train_tissue_indices,
+		val_tissue_indices,
+		learning_rate,
+		l2_tissue_reg_strength,
+		l2_variant_reg_strength,
+		variant_encoder_architecture,
+		max_epochs=max_epochs,
+		use_held_out_genes_for_validation=use_held_out_genes_for_validation
+	)
 	# Evaluate
 	evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, gene_expression_data, test_tissue_index, model_training_output_stem)
 	# Save model results

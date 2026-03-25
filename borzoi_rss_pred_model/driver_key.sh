@@ -18,7 +18,7 @@ genotype_dir_1000_G="/lab-share/CHIP-Strober-e2/Public/1000G_Phase3/hg38/"
 gencode_gene_annotation_file="/lab-share/CHIP-Strober-e2/Public/gene_annotation_files/gencode.v39.gtex.protein_coding.genes.gtf"
 
 # Data processed for input to prediction
-prediction_input_data_summary_file="/lab-share/CHIP-Strober-e2/Public/ben/s2e_uncertainty/eqtl_borzoi_integration_processed_data/borzoi/gene_borzoi_summary_chr1.txt"
+prediction_input_data_summary_filestem="/lab-share/CHIP-Strober-e2/Public/ben/s2e_uncertainty/eqtl_borzoi_integration_processed_data/borzoi/gene_borzoi_summary_chr"
 
 # Ordered gtex tissues names 
 gtex_tissue_names_file="/lab-share/CHIP-Strober-e2/Public/ben/s2e_uncertainty/eqtl_borzoi_integration_processed_data/borzoi/ordered_gtex_tissues_chr1.txt"
@@ -73,18 +73,26 @@ fi
 
 ##########
 # Fit model 
-if false; then
 test_tissue="Adipose_Visceral_Omentum"
-model_training_output_stem=${model_training_dir}"model_held_out_genes_eval_train_test_tissue_"${test_tissue}
-sbatch borzoi_rss_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_input_data_summary_file $test_tissue $model_training_output_stem
+learning_rates=("1e-5" "1e-4" "3e-4" "1e-3")
+l2_tissue_reg_strengths=("1e-3" "1.0" "100.0" "1000.0")
+l2_variant_reg_strengths=("1e-3" "1.0" "100.0" "1000.0")
+variant_encoder_architecture="128,64,32"
+if false; then
+for learning_rate in "${learning_rates[@]}"; do
+for l2_tissue_reg_strength in "${l2_tissue_reg_strengths[@]}"; do
+for l2_variant_reg_strength in "${l2_variant_reg_strengths[@]}"; do
 
-
-test_tissue="Heart_Left_Ventricle"
-
-model_training_output_stem=${model_training_dir}"model_held_out_genes_eval_train_test_tissue_"${test_tissue}
-sbatch borzoi_rss_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_input_data_summary_file $test_tissue $model_training_output_stem
+	model_training_output_stem=${model_training_dir}"model_held_out_genes3_eval_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
+	sbatch borzoi_rss_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l2_variant_reg_strength $variant_encoder_architecture
+done
+done
+done
 fi
 
+if false; then
+test_tissue="Heart_Left_Ventricle"
+fi
 
 
 
@@ -285,6 +293,5 @@ source ~/.bashrc
 conda activate borzoi
 python get_training_and_test_expression_data_and_pcs.py $processed_all_sample_expression_file $training_tissue_file $test_tissue_file $training_expression_file $test_expression_file $training_expression_pc_file $test_expression_pc_file $n_pcs
 fi
-
 
 
