@@ -20,7 +20,7 @@ variant_encoder_architecture="$9"
 echo $model_training_output_stem
 
 date
-python "borzoi_rss_model_training.py" \
+python "borzoi_rss_cat_model_training.py" \
 	--gtex-tissue-names-file "$gtex_tissue_names_file" \
 	--single-samp-per-tissue-expr-file "$single_samp_per_tissue_expr_file" \
 	--prediction-input-data-summary-filestem "$prediction_input_data_summary_filestem" \

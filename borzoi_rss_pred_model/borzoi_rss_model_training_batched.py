@@ -53,7 +53,8 @@ def load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_sn
 				continue
 			counter = counter + 1
 
-			arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, borzoi_file, n_snps_per_gene))
+			if np.random.choice(np.arange(20)) == 1:
+				arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, borzoi_file, n_snps_per_gene))
 			#indices.append(counter)
 		f.close()
 
@@ -136,10 +137,12 @@ def parse_args():
 	parser.add_argument('--l2-tissue-reg-strength', required=False, type=float, default=1e-5)
 	parser.add_argument('--l2-variant-reg-strength', required=False, type=float, default=1.0)
 	parser.add_argument('--variant-encoder-architecture', required=False, type=str, default='128,64,32')
+	parser.add_argument('--dropout-rate', required=False, type=float, default=0.0)
 	return parser.parse_args()
 
 
-def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_expression_data, train_tissue_indices, val_tissue_indices, learning_rate, l2_tissue_reg_strength, l2_variant_reg_strength, variant_encoder_architecture, max_epochs=100, use_held_out_genes_for_validation=True):
+def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_expression_data, train_tissue_indices, val_tissue_indices, learning_rate, l2_tissue_reg_strength, l2_variant_reg_strength, variant_encoder_architecture, dropout_rate, max_epochs=100, use_held_out_genes_for_validation=True):
+	genes_per_gradient_step = 5
 	# Load in number data dimensions
 	n_borzoi_dimensions = np.load(train_gene_based_model_data[0][5]).shape[1]
 	n_expr_gene_dimensions = gene_expression_data.shape[0]
@@ -148,7 +151,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 	borzoi_feature_means, borzoi_feature_sdevs = extract_mean_and_sdev_of_each_borzoi_feature(train_gene_based_model_data)
 	borzoi_feature_means = borzoi_feature_means.astype(np.float32)
 	borzoi_feature_sdevs[borzoi_feature_sdevs == 0.0] = 1.0
-	borzoi_feature_inv_sdevs = 1e-5*(1.0 / borzoi_feature_sdevs).astype(np.float32)
+	borzoi_feature_inv_sdevs = (1.0 / borzoi_feature_sdevs).astype(np.float32)
 
 	n_training_genes = len(train_gene_based_model_data)
 	best_val_loss = np.inf
@@ -161,7 +164,9 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 	l2_reg_variant = tf.keras.regularizers.l2(l2_variant_reg_strength)
 	tissue_input = tf.keras.Input(shape=(n_expr_gene_dimensions,), name='tissue_expression_input')
 	tissue_hidden = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=l2_reg_tissue, name='tissue_dense_1')(tissue_input)
+	tissue_hidden = tf.keras.layers.Dropout(dropout_rate, name='tissue_dropout_1')(tissue_hidden)
 	tissue_hidden = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=l2_reg_tissue, name='tissue_dense_2')(tissue_hidden)
+	tissue_hidden = tf.keras.layers.Dropout(dropout_rate, name='tissue_dropout_2')(tissue_hidden)
 	tissue_embedding = tf.keras.layers.Dense(32, activation='linear', kernel_regularizer=l2_reg_tissue, name='tissue_embedding')(tissue_hidden)
 	tissue_encoder = tf.keras.Model(inputs=tissue_input, outputs=tissue_embedding, name='tissue_encoder')
 
@@ -173,6 +178,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 	borzoi_hidden = borzoi_input
 	for layer_num, layer_size in enumerate(architecture_sizes[:-1], start=1):
 		borzoi_hidden = tf.keras.layers.Dense(layer_size, activation='relu', kernel_regularizer=l2_reg_variant, name='borzoi_dense_' + str(layer_num))(borzoi_hidden)
+		borzoi_hidden = tf.keras.layers.Dropout(dropout_rate, name='borzoi_dropout_' + str(layer_num))(borzoi_hidden)
 	variant_embedding = tf.keras.layers.Dense(architecture_sizes[-1], activation='linear', kernel_regularizer=l2_reg_variant, name='variant_embedding')(borzoi_hidden)
 	variant_encoder = tf.keras.Model(inputs=borzoi_input, outputs=variant_embedding, name='variant_encoder')
 
@@ -185,7 +191,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 		return tf.matmul(variant_embeddings_tf, tissue_embeddings_tf, transpose_b=True)
 
 	def compute_observed_and_predicted_gene_zeds(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, tissue_expression_tf, gene_afs_tf, training):
-		beta_mat = compute_beta_mat(gene_borzoi_preds_tf, tissue_expression_tf, training=training)
+		beta_mat = compute_beta_mat(gene_borzoi_preds_tf, tissue_expression_tf, training=training)*1e-8
 		valid_mask = ~tf.math.is_nan(gene_zeds_tf)
 		genotype_sd = tf.sqrt(2.0 * gene_afs_tf * (1.0 - gene_afs_tf))
 		beta_std_mat = beta_mat * genotype_sd[:, None]
@@ -217,27 +223,43 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 
 		return tf.reduce_sum(tf.square(residuals)/valid_ld_scores)
 
-	@tf.function(
-		input_signature=[
-			tf.TensorSpec(shape=[None, n_borzoi_dimensions], dtype=tf.float32),
-			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
-			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
-			tf.TensorSpec(shape=[None, None], dtype=tf.float32),
-			tf.TensorSpec(shape=[None], dtype=tf.float32),
-		],
-		reduce_retracing=True
-	)
-	def train_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, gene_afs_tf):
+	def load_gene_training_tensors(gene_data, tissue_indices):
+		gene_name, gene_snp_summary_file, gene_zed_file, gene_N_eff_file, gene_LD_file, gene_borzoi_pred_file, n_gene_snps = gene_data
+		gene_LD = np.load(gene_LD_file)
+		gene_borzoi_preds = load_in_standardized_gene_borzoi_preds(gene_borzoi_pred_file, borzoi_feature_means, borzoi_feature_inv_sdevs)
+		gene_zeds = np.load(gene_zed_file)
+		gene_N_eff = np.load(gene_N_eff_file)
+		gene_afs = np.loadtxt(gene_snp_summary_file,dtype=str)[1:,-1].astype(float)
+		valid_row_indices = np.where(~np.isnan(gene_borzoi_preds).any(axis=1))[0]
+		if len(valid_row_indices) == 0:
+			return None
+		gene_LD = gene_LD[valid_row_indices, :][:, valid_row_indices]
+		gene_borzoi_preds = gene_borzoi_preds[valid_row_indices, :]
+		gene_N_eff = gene_N_eff[valid_row_indices, :][:, tissue_indices]
+		gene_zeds = gene_zeds[valid_row_indices, :][:, tissue_indices]
+		gene_afs = gene_afs[valid_row_indices]
+		return (
+			tf.convert_to_tensor(gene_borzoi_preds.astype(np.float32)),
+			tf.convert_to_tensor(gene_zeds.astype(np.float32)),
+			tf.convert_to_tensor(gene_N_eff.astype(np.float32)),
+			tf.convert_to_tensor(gene_LD.astype(np.float32)),
+			tf.convert_to_tensor(gene_afs.astype(np.float32))
+		)
+
+	def train_step(gene_batch_tensors):
 		with tf.GradientTape() as tape:
-			train_loss = compute_gene_loss(
-				gene_borzoi_preds_tf,
-				gene_zeds_tf,
-				gene_N_eff_tf,
-				gene_LD_tf,
-				train_tissue_expression_tf,
-				gene_afs_tf,
-				training=True
-			)
+			batch_losses = []
+			for gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, gene_afs_tf in gene_batch_tensors:
+				batch_losses.append(compute_gene_loss(
+					gene_borzoi_preds_tf,
+					gene_zeds_tf,
+					gene_N_eff_tf,
+					gene_LD_tf,
+					train_tissue_expression_tf,
+					gene_afs_tf,
+					training=True
+				))
+			train_loss = tf.add_n(batch_losses) / tf.cast(len(batch_losses), tf.float32)
 		trainable_variables = tissue_encoder.trainable_variables + variant_encoder.trainable_variables
 		gradients = tape.gradient(train_loss, trainable_variables)
 		optimizer.apply_gradients(zip(gradients, trainable_variables))
@@ -247,30 +269,16 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 	for epoch_iter in range(max_epochs):
 		epoch_train_losses = []
 
-		# Loop through genes
-		for gene_index in np.random.permutation(n_training_genes):
-			# Load in training data for this gene
-			gene_name, gene_snp_summary_file, gene_zed_file, gene_N_eff_file, gene_LD_file, gene_borzoi_pred_file, n_gene_snps = train_gene_based_model_data[gene_index]
-			gene_LD = np.load(gene_LD_file)
-			gene_borzoi_preds = load_in_standardized_gene_borzoi_preds(gene_borzoi_pred_file, borzoi_feature_means, borzoi_feature_inv_sdevs)
-			gene_zeds = np.load(gene_zed_file)
-			gene_N_eff = np.load(gene_N_eff_file)
-			gene_afs = np.loadtxt(gene_snp_summary_file,dtype=str)[1:,-1].astype(float)
-			valid_row_indices = np.where(~np.isnan(gene_borzoi_preds).any(axis=1))[0]
-			if len(valid_row_indices) == 0:
+		shuffled_gene_indices = np.random.permutation(n_training_genes)
+		for batch_start in range(0, n_training_genes, genes_per_gradient_step):
+			gene_batch_tensors = []
+			for gene_index in shuffled_gene_indices[batch_start:(batch_start + genes_per_gradient_step)]:
+				gene_tensors = load_gene_training_tensors(train_gene_based_model_data[gene_index], train_tissue_indices)
+				if gene_tensors is not None:
+					gene_batch_tensors.append(gene_tensors)
+			if len(gene_batch_tensors) == 0:
 				continue
-			gene_LD = gene_LD[valid_row_indices, :][:, valid_row_indices]
-			gene_borzoi_preds = gene_borzoi_preds[valid_row_indices, :]
-			gene_N_eff = gene_N_eff[valid_row_indices, :][:, train_tissue_indices]
-			gene_zeds = gene_zeds[valid_row_indices, :][:, train_tissue_indices]
-			gene_afs = gene_afs[valid_row_indices]
-
-			gene_LD_tf = tf.convert_to_tensor(gene_LD.astype(np.float32))
-			gene_borzoi_preds_tf = tf.convert_to_tensor(gene_borzoi_preds.astype(np.float32))
-			gene_N_eff_tf = tf.convert_to_tensor(gene_N_eff.astype(np.float32))
-			gene_zeds_tf = tf.convert_to_tensor(gene_zeds.astype(np.float32))
-			gene_afs_tf = tf.convert_to_tensor(gene_afs.astype(np.float32))
-			train_loss = train_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, gene_afs_tf)
+			train_loss = train_step(gene_batch_tensors)
 			epoch_train_losses.append(train_loss.numpy())
 
 		epoch_val_losses = []
@@ -347,7 +355,7 @@ def evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train
 	borzoi_feature_means, borzoi_feature_sdevs = extract_mean_and_sdev_of_each_borzoi_feature(train_gene_based_model_data)
 	borzoi_feature_means = borzoi_feature_means.astype(np.float32)
 	borzoi_feature_sdevs[borzoi_feature_sdevs == 0.0] = 1.0
-	borzoi_feature_inv_sdevs = 1e-5*(1.0 / borzoi_feature_sdevs).astype(np.float32)
+	borzoi_feature_inv_sdevs = (1.0 / borzoi_feature_sdevs).astype(np.float32)
 
 	test_tissue_expression_tf = tf.convert_to_tensor(gene_expression_data[:, [test_tissue_index]].T.astype(np.float32))
 	output_file = model_training_output_stem + '_all_gene_test_tissue_evaluation.txt'
@@ -388,7 +396,7 @@ def evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train
 
 			tissue_embeddings_tf = tissue_encoder(test_tissue_expression_tf, training=False)
 			variant_embeddings_tf = variant_encoder(gene_borzoi_preds_tf, training=False)
-			beta_mat = tf.matmul(variant_embeddings_tf, tissue_embeddings_tf, transpose_b=True)
+			beta_mat = tf.matmul(variant_embeddings_tf, tissue_embeddings_tf, transpose_b=True)*1e-8
 			genotype_sd = tf.sqrt(2.0 * gene_afs_tf * (1.0 - gene_afs_tf))
 			beta_std_mat = beta_mat * genotype_sd[:, None]
 			valid_mask = ~tf.math.is_nan(gene_zeds_tf)
@@ -428,8 +436,9 @@ def main():
 	l2_tissue_reg_strength = args.l2_tissue_reg_strength
 	l2_variant_reg_strength = args.l2_variant_reg_strength
 	variant_encoder_architecture = args.variant_encoder_architecture
+	dropout_rate = args.dropout_rate
 
-	np.random.seed(1)
+	np.random.seed(3)
 
 	# Load in all tissues names
 	all_tissue_names = load_in_tissue_names(gtex_tissue_names_file)
@@ -486,6 +495,7 @@ def main():
 		l2_tissue_reg_strength,
 		l2_variant_reg_strength,
 		variant_encoder_architecture,
+		dropout_rate,
 		max_epochs=max_epochs,
 		use_held_out_genes_for_validation=use_held_out_genes_for_validation
 	)

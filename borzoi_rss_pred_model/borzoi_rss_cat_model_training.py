@@ -53,7 +53,8 @@ def load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_sn
 				continue
 			counter = counter + 1
 
-			arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, borzoi_file, n_snps_per_gene))
+			if np.random.choice(np.arange(20)) == 1:
+				arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, borzoi_file, n_snps_per_gene))
 			#indices.append(counter)
 		f.close()
 
@@ -148,12 +149,13 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 	borzoi_feature_means, borzoi_feature_sdevs = extract_mean_and_sdev_of_each_borzoi_feature(train_gene_based_model_data)
 	borzoi_feature_means = borzoi_feature_means.astype(np.float32)
 	borzoi_feature_sdevs[borzoi_feature_sdevs == 0.0] = 1.0
-	borzoi_feature_inv_sdevs = 1e-5*(1.0 / borzoi_feature_sdevs).astype(np.float32)
+	borzoi_feature_inv_sdevs = 1.0*(1.0 / borzoi_feature_sdevs).astype(np.float32)
 
 	n_training_genes = len(train_gene_based_model_data)
 	best_val_loss = np.inf
 	best_tissue_weights = None
 	best_variant_weights = None
+	best_concat_mlp_weights = None
 	optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
 	# Tissue encoder: reduces high-dimensional tissue expression to a compact embedding.
@@ -176,13 +178,30 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 	variant_embedding = tf.keras.layers.Dense(architecture_sizes[-1], activation='linear', kernel_regularizer=l2_reg_variant, name='variant_embedding')(borzoi_hidden)
 	variant_encoder = tf.keras.Model(inputs=borzoi_input, outputs=variant_embedding, name='variant_encoder')
 
+	concat_input = tf.keras.Input(shape=(architecture_sizes[-1] + 32,), name='concat_mlp_input')
+	concat_hidden = tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=l2_reg_variant, name='concat_dense_1')(concat_input)
+	concat_hidden = tf.keras.layers.Dense(32, activation='relu', kernel_regularizer=l2_reg_variant, name='concat_dense_2')(concat_hidden)
+	concat_output = tf.keras.layers.Dense(1, activation='linear', kernel_regularizer=l2_reg_variant, name='concat_output')(concat_hidden)
+	concat_mlp = tf.keras.Model(inputs=concat_input, outputs=concat_output, name='concat_mlp')
+
+
 	train_tissue_expression_tf = tf.convert_to_tensor(gene_expression_data[:, train_tissue_indices].T.astype(np.float32))
 	val_tissue_expression_tf = tf.convert_to_tensor(gene_expression_data[:, val_tissue_indices].T.astype(np.float32))
 
 	def compute_beta_mat(gene_borzoi_preds_tf, tissue_expression_tf, training):
 		tissue_embeddings_tf = tissue_encoder(tissue_expression_tf, training=training)
 		variant_embeddings_tf = variant_encoder(gene_borzoi_preds_tf, training=training)
-		return tf.matmul(variant_embeddings_tf, tissue_embeddings_tf, transpose_b=True)
+		n_snps = tf.shape(variant_embeddings_tf)[0]
+		n_tissues = tf.shape(tissue_embeddings_tf)[0]
+		variant_expanded_tf = tf.broadcast_to(variant_embeddings_tf[:, None, :], [n_snps, n_tissues, architecture_sizes[-1]])
+		tissue_expanded_tf = tf.broadcast_to(tissue_embeddings_tf[None, :, :], [n_snps, n_tissues, 32])
+		pairwise_inputs_tf = tf.concat([variant_expanded_tf, tissue_expanded_tf], axis=2)
+		pairwise_outputs_tf = concat_mlp(
+			tf.reshape(pairwise_inputs_tf, [-1, architecture_sizes[-1] + 32]),
+			training=training
+		)
+
+		return tf.reshape(pairwise_outputs_tf, [n_snps, n_tissues])*1e-7
 
 	def compute_observed_and_predicted_gene_zeds(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, tissue_expression_tf, gene_afs_tf, training):
 		beta_mat = compute_beta_mat(gene_borzoi_preds_tf, tissue_expression_tf, training=training)
@@ -217,6 +236,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 
 		return tf.reduce_sum(tf.square(residuals)/valid_ld_scores)
 
+	'''
 	@tf.function(
 		input_signature=[
 			tf.TensorSpec(shape=[None, n_borzoi_dimensions], dtype=tf.float32),
@@ -227,6 +247,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 		],
 		reduce_retracing=True
 	)
+	'''
 	def train_step(gene_borzoi_preds_tf, gene_zeds_tf, gene_N_eff_tf, gene_LD_tf, gene_afs_tf):
 		with tf.GradientTape() as tape:
 			train_loss = compute_gene_loss(
@@ -238,7 +259,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 				gene_afs_tf,
 				training=True
 			)
-		trainable_variables = tissue_encoder.trainable_variables + variant_encoder.trainable_variables
+		trainable_variables = tissue_encoder.trainable_variables + variant_encoder.trainable_variables + concat_mlp.trainable_variables
 		gradients = tape.gradient(train_loss, trainable_variables)
 		optimizer.apply_gradients(zip(gradients, trainable_variables))
 		return train_loss
@@ -328,6 +349,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 			best_val_loss = epoch_val_loss
 			best_tissue_weights = tissue_encoder.get_weights()
 			best_variant_weights = variant_encoder.get_weights()
+			best_concat_mlp_weights = concat_mlp.get_weights()
 			status = ' best'
 		print('epoch ' + str(epoch_iter) + ' train_loss=' + str(np.mean(epoch_train_losses)) + ' val_loss=' + str(epoch_val_loss) + ' val_corr=' + str(np.mean(epoch_val_corrs)) + status, flush=True)
 
@@ -335,11 +357,12 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, gene_exp
 	if best_tissue_weights is not None:
 		tissue_encoder.set_weights(best_tissue_weights)
 		variant_encoder.set_weights(best_variant_weights)
+		concat_mlp.set_weights(best_concat_mlp_weights)
 
-	return tissue_encoder, variant_encoder
+	return tissue_encoder, variant_encoder, concat_mlp
 
 
-def evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, gene_expression_data, test_tissue_index, model_training_output_stem):
+def evaluate_model(tissue_encoder, variant_encoder, concat_mlp, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, gene_expression_data, test_tissue_index, model_training_output_stem):
 	train_gene_names = {gene_data[0] for gene_data in train_gene_based_model_data}
 	val_gene_names = {gene_data[0] for gene_data in val_gene_based_model_data}
 	test_gene_names = {gene_data[0] for gene_data in test_gene_based_model_data}
@@ -347,7 +370,7 @@ def evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train
 	borzoi_feature_means, borzoi_feature_sdevs = extract_mean_and_sdev_of_each_borzoi_feature(train_gene_based_model_data)
 	borzoi_feature_means = borzoi_feature_means.astype(np.float32)
 	borzoi_feature_sdevs[borzoi_feature_sdevs == 0.0] = 1.0
-	borzoi_feature_inv_sdevs = 1e-5*(1.0 / borzoi_feature_sdevs).astype(np.float32)
+	borzoi_feature_inv_sdevs = 1.0*(1.0 / borzoi_feature_sdevs).astype(np.float32)
 
 	test_tissue_expression_tf = tf.convert_to_tensor(gene_expression_data[:, [test_tissue_index]].T.astype(np.float32))
 	output_file = model_training_output_stem + '_all_gene_test_tissue_evaluation.txt'
@@ -388,7 +411,16 @@ def evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train
 
 			tissue_embeddings_tf = tissue_encoder(test_tissue_expression_tf, training=False)
 			variant_embeddings_tf = variant_encoder(gene_borzoi_preds_tf, training=False)
-			beta_mat = tf.matmul(variant_embeddings_tf, tissue_embeddings_tf, transpose_b=True)
+			n_snps = tf.shape(variant_embeddings_tf)[0]
+			n_tissues = tf.shape(tissue_embeddings_tf)[0]
+			variant_expanded_tf = tf.broadcast_to(variant_embeddings_tf[:, None, :], [n_snps, n_tissues, variant_embeddings_tf.shape[1]])
+			tissue_expanded_tf = tf.broadcast_to(tissue_embeddings_tf[None, :, :], [n_snps, n_tissues, tissue_embeddings_tf.shape[1]])
+			pairwise_inputs_tf = tf.concat([variant_expanded_tf, tissue_expanded_tf], axis=2)
+			beta_mat = concat_mlp(
+				tf.reshape(pairwise_inputs_tf, [-1, variant_embeddings_tf.shape[1] + tissue_embeddings_tf.shape[1]]),
+				training=False
+			)
+			beta_mat = tf.reshape(beta_mat, [n_snps, n_tissues])
 			genotype_sd = tf.sqrt(2.0 * gene_afs_tf * (1.0 - gene_afs_tf))
 			beta_std_mat = beta_mat * genotype_sd[:, None]
 			valid_mask = ~tf.math.is_nan(gene_zeds_tf)
@@ -476,7 +508,7 @@ def main():
 	use_held_out_genes_for_validation=True
 	train_gene_based_model_data, val_gene_based_model_data = split_train_and_val_gene_based_model_data(train_val_gene_based_model_data, use_held_out_genes_for_validation)
 	# Train
-	tissue_encoder, variant_encoder = train_model(
+	tissue_encoder, variant_encoder, concat_mlp = train_model(
 		train_gene_based_model_data,
 		val_gene_based_model_data,
 		gene_expression_data,
@@ -490,10 +522,11 @@ def main():
 		use_held_out_genes_for_validation=use_held_out_genes_for_validation
 	)
 	# Evaluate
-	evaluate_model(tissue_encoder, variant_encoder, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, gene_expression_data, test_tissue_index, model_training_output_stem)
+	evaluate_model(tissue_encoder, variant_encoder, concat_mlp, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, gene_expression_data, test_tissue_index, model_training_output_stem)
 	# Save model results
 	tissue_encoder.save(model_training_output_stem + '_tissue_encoder.keras')
 	variant_encoder.save(model_training_output_stem + '_variant_encoder.keras')
+	concat_mlp.save(model_training_output_stem + '_concat_mlp.keras')
 
 
 

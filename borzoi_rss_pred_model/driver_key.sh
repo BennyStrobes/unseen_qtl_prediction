@@ -90,10 +90,34 @@ done
 done
 fi
 
+learning_rate="1e-4"
+l2_tissue_reg_strength="100.0"
+l2_variant_reg_strength="100.0"
+	model_training_output_stem=${model_training_dir}"model_held_out_genes4_eval_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
+	if false; then
+	sh borzoi_rss_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l2_variant_reg_strength $variant_encoder_architecture
+fi
 if false; then
 test_tissue="Heart_Left_Ventricle"
 fi
 
+
+learning_rate="1e-4"
+l2_tissue_reg_strength="100.0"
+l2_variant_reg_strength="100.0"
+if false; then
+tail -n +2 $gtex_tissue_names_file | while read -r test_tissue; do
+	model_training_output_stem=${model_training_dir}"model_held_out_genes4_eval_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
+	sbatch borzoi_rss_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l2_variant_reg_strength $variant_encoder_architecture
+done
+fi
+
+test_tissue="Adipose_Visceral_Omentum"
+learning_rate="1e-3"
+l2_tissue_reg_strength="0.0"
+l2_variant_reg_strength="0.0"
+model_training_output_stem=${model_training_dir}"cat_model_held_out_genes4_eval_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
+sh borzoi_rss_model_training_batched.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l2_variant_reg_strength $variant_encoder_architecture
 
 
 
