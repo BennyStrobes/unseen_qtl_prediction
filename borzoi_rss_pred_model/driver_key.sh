@@ -84,35 +84,6 @@ fi
 
 
 
-##########
-# Fit model 
-test_tissue="Adipose_Visceral_Omentum"
-learning_rates=("1e-5" "1e-4" "3e-4" "1e-3")
-l2_tissue_reg_strengths=("1e-3" "1.0" "100.0" "1000.0")
-l2_variant_reg_strengths=("1e-3" "1.0" "100.0" "1000.0")
-variant_encoder_architecture="128,64,32"
-if false; then
-for learning_rate in "${learning_rates[@]}"; do
-for l2_tissue_reg_strength in "${l2_tissue_reg_strengths[@]}"; do
-for l2_variant_reg_strength in "${l2_variant_reg_strengths[@]}"; do
-
-	model_training_output_stem=${model_training_dir}"model_held_out_genes3_eval_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
-	sbatch borzoi_rss_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l2_variant_reg_strength $variant_encoder_architecture
-done
-done
-done
-fi
-
-learning_rate="1e-4"
-l2_tissue_reg_strength="100.0"
-l2_variant_reg_strength="100.0"
-	model_training_output_stem=${model_training_dir}"model_held_out_genes4_eval_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
-	if false; then
-	sh borzoi_rss_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l2_variant_reg_strength $variant_encoder_architecture
-fi
-if false; then
-test_tissue="Heart_Left_Ventricle"
-fi
 
 
 if false; then
@@ -142,20 +113,6 @@ tail -n +2 $gtex_tissue_names_file | while read -r test_tissue; do
 	variant_encoder_architecture="2048,1024,512,256,128,64,32"
 	model_training_output_stem=${model_training_dir}"full_rss_model_held_out_genes_eval_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
 	sbatch borzoi_full_rss_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l2_variant_reg_strength $variant_encoder_architecture
-done
-fi
-
-# FILM
-if false; then
-tail -n +2 $gtex_tissue_names_file | while read -r test_tissue; do
-
-learning_rate="2e-5"
-l2_tissue_reg_strength="100.0"
-l2_variant_reg_strength="100.0"
-variant_encoder_architecture="512,256,128,64"
-model_training_output_stem=${model_training_dir}"full_rss_film_model_held_out_genes_eval_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
-sbatch borzoi_full_rss_film_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l2_variant_reg_strength $variant_encoder_architecture
-
 done
 fi
 
