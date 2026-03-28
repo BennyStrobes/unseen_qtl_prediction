@@ -83,9 +83,9 @@ python process_borzoi_target_files.py $borzoi_target_file $gtex_tissue_names_fil
 fi
 
 
-
-
-
+########################################
+# Hold out single tissue model training
+########################################
 if false; then
 learning_rate="1e-5"
 l2_tissue_reg_strength="100.0"
@@ -122,10 +122,51 @@ fi
 if false; then
 tail -n +2 "$borzoi_gtex_tissues_file" | while IFS=$'\t' read -r test_tissue borzoi_target_index; do
 	borzoi_eval_output_stem=${model_training_dir}"borzoi_eval_"${test_tissue}
-
     sbatch borzoi_pred_evaluation.sh $test_tissue $borzoi_target_index $borzoi_eval_output_stem $prediction_inv_ld_input_data_summary_filestem $gtex_tissue_names_file
 done
 fi
+
+
+########################################
+# Single tissue analysis
+########################################
+test_tissue="Adipose_Subcutaneous"
+learning_rates=("1e-5" "1e-4" "1e-3")
+l2_variant_reg_strengths=("0.0" "1.0" "100.0")
+variant_encoder_architectures=("2048,1024,512,256,128,64,32" "256,128,64,32")
+if false; then
+for learning_rate in "${learning_rates[@]}"; do
+for l2_variant_reg_strength in "${l2_variant_reg_strengths[@]}"; do
+for variant_encoder_architecture in "${variant_encoder_architectures[@]}"; do
+	model_training_output_stem=${model_training_dir}"full_rss_model_single_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_NA_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
+	sbatch borzoi_full_rss_single_tissue_model_training.sh $gtex_tissue_names_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_variant_reg_strength $variant_encoder_architecture
+done
+done
+done
+fi
+
+
+
+test_tissue="Adipose_Subcutaneous"
+learning_rates=("1e-5" "1e-4" "1e-3")
+l2_variant_reg_strengths=("0.0" "1.0" "100.0")
+variant_encoder_architectures=("2048,1024,512,256,128,64,32" "256,128,64,32")
+if false; then
+for learning_rate in "${learning_rates[@]}"; do
+for l2_variant_reg_strength in "${l2_variant_reg_strengths[@]}"; do
+for variant_encoder_architecture in "${variant_encoder_architectures[@]}"; do
+	model_training_output_stem=${model_training_dir}"full_rss_model_single_tissue_expr_var_sdev_"${test_tissue}"_lr_"${learning_rate}"_l2t_NA_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
+	sbatch borzoi_full_rss_single_tissue_expr_norm_model_training.sh $gtex_tissue_names_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_variant_reg_strength $variant_encoder_architecture $gtex_tpm_expression $gtex_sample_attributes_file
+done
+done
+done
+fi
+
+
+
+
+
+
 
 ##########
 # Evaluate standard borzoi predictions
@@ -142,7 +183,6 @@ source ~/.bashrc
 conda activate plink_env 
 Rscript visualize_predictions.R $borzoi_gtex_tissues_file ${model_training_dir} $visualization_dir
 fi
-
 
 
 
