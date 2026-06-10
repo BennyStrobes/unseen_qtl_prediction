@@ -120,11 +120,21 @@ fi
 ##########
 # Evaluate standard borzoi predictions
 if false; then
+
 tail -n +2 "$borzoi_gtex_tissues_file" | while IFS=$'\t' read -r test_tissue borzoi_target_index; do
 	borzoi_eval_output_stem=${model_training_dir}"borzoi_eval_"${test_tissue}
-    sbatch borzoi_pred_evaluation.sh $test_tissue $borzoi_target_index $borzoi_eval_output_stem $prediction_inv_ld_input_data_summary_filestem $gtex_tissue_names_file
+    sh borzoi_pred_evaluation.sh $test_tissue $borzoi_target_index $borzoi_eval_output_stem $prediction_inv_ld_input_data_summary_filestem $gtex_tissue_names_file
+
 done
 fi
+
+
+
+test_tissue="Whole_Blood"
+borzoi_target_index="6306"
+borzoi_eval_output_stem=${model_training_dir}"borzoi_eval_"${test_tissue}
+sh borzoi_pred_evaluation.sh $test_tissue $borzoi_target_index $borzoi_eval_output_stem $prediction_inv_ld_input_data_summary_filestem $gtex_tissue_names_file
+
 
 
 ########################################
@@ -164,6 +174,42 @@ fi
 
 
 
+# Try res-MLP
+test_tissue="Adipose_Subcutaneous"
+variant_encoder_architecture="2048,1024,512,256,128,64,32"
+learning_rates=("1e-5" "1e-4" "1e-3")
+l2_variant_reg_strengths=("1e-5" "1.0" "1000.0")
+res_mlp_dropout_rates=("0.1" "0.3" "0.6")
+res_mlp_blocks_per_stage="2"
+
+if false; then
+for learning_rate in "${learning_rates[@]}"; do
+for l2_variant_reg_strength in "${l2_variant_reg_strengths[@]}"; do
+for res_mlp_dropout_rate in "${res_mlp_dropout_rates[@]}"; do
+	model_training_output_stem=${model_training_dir}"full_rss_model_single_tissue_expr_var_sdev_res_mlp"${test_tissue}"_lr_"${learning_rate}"_l2t_NA_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}"_n_block_"${res_mlp_blocks_per_stage}"_dropout_"${res_mlp_dropout_rate}
+	sbatch borzoi_full_rss_single_tissue_expr_norm_res_mlp_model_training.sh $gtex_tissue_names_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_variant_reg_strength $variant_encoder_architecture $gtex_tpm_expression $gtex_sample_attributes_file $res_mlp_blocks_per_stage $res_mlp_dropout_rate
+done
+done
+done
+fi
+
+# Try adding expression data to input
+if false; then
+test_tissue="Adipose_Subcutaneous"
+learning_rates=("1e-5" "1e-4" "1e-3")
+l2_variant_reg_strengths=("1e-5" "1.0" "1000.0")
+variant_encoder_architectures=("2048,1024,512,256,128,64,32" "256,128,64,32")
+for learning_rate in "${learning_rates[@]}"; do
+for l2_variant_reg_strength in "${l2_variant_reg_strengths[@]}"; do
+for variant_encoder_architecture in "${variant_encoder_architectures[@]}"; do
+
+model_training_output_stem=${model_training_dir}"full_rss_model_single_tissue_expr_var_sdev_expr_input_"${test_tissue}"_lr_"${learning_rate}"_l2t_NA_l2v_"${l2_variant_reg_strength}"_var_arch_"${variant_encoder_architecture//,/x}
+sbatch borzoi_full_rss_single_tissue_expr_norm_expr_input_model_training.sh $gtex_tissue_names_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_variant_reg_strength $variant_encoder_architecture $gtex_tpm_expression $gtex_sample_attributes_file $single_samp_per_tissue_expr_file
+
+done
+done
+done
+fi
 
 
 
@@ -183,8 +229,6 @@ source ~/.bashrc
 conda activate plink_env 
 Rscript visualize_predictions.R $borzoi_gtex_tissues_file ${model_training_dir} $visualization_dir
 fi
-
-
 
 
 

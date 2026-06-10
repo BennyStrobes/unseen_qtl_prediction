@@ -51,7 +51,7 @@ def load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_sn
 				continue
 			counter = counter + 1
 
-			if np.random.choice(np.arange(8)) == 1:
+			if np.random.choice(np.arange(3)) == 1:
 				arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, inv_ld_file, borzoi_file, n_snps_per_gene))
 			#indices.append(counter)
 		f.close()
@@ -112,6 +112,28 @@ def load_in_standardized_gene_borzoi_preds(gene_borzoi_pred_file, borzoi_feature
 	return gene_borzoi_preds
 
 
+def extract_mean_and_sdev_of_each_expr_feature(train_val_gene_based_model_data, gene_to_expr_vec):
+	expr_vecs = []
+	for gene_name, _, _, _, _, _, _, _ in train_val_gene_based_model_data:
+		if gene_name not in gene_to_expr_vec:
+			continue
+		expr_vecs.append(gene_to_expr_vec[gene_name])
+	if len(expr_vecs) == 0:
+		raise ValueError('No genes with expression vectors found in training data')
+	expr_mat = np.asarray(expr_vecs, dtype=np.float32)
+	meany = np.mean(expr_mat, axis=0)
+	sdev = np.std(expr_mat, axis=0, ddof=1)
+	sdev[sdev == 0.0] = 1.0
+	return meany, sdev
+
+
+def get_standardized_expr_vec(gene_name, gene_to_expr_vec, expr_feature_means, expr_feature_inv_sdevs):
+	expr_vec = np.asarray(gene_to_expr_vec[gene_name], dtype=np.float32)
+	expr_vec -= expr_feature_means
+	expr_vec *= expr_feature_inv_sdevs
+	return expr_vec
+
+
 def split_train_and_val_gene_based_model_data(train_val_gene_based_model_data, use_held_out_genes_for_validation):
 	if use_held_out_genes_for_validation:
 		tot_genes = len(train_val_gene_based_model_data)
@@ -129,6 +151,7 @@ def parse_args():
 	parser.add_argument('--prediction-input-data-summary-filestem', required=True, type=str)
 	parser.add_argument('--expression-tpm-file', required=True, type=str)
 	parser.add_argument('--expression-sample-file', required=True, type=str)
+	parser.add_argument('--alt-expr-file', required=True, type=str)
 	parser.add_argument('--test-tissue', required=True, type=str)
 	parser.add_argument('--model-training-output-stem', required=True, type=str)
 	parser.add_argument('--learning-rate', required=False, type=float, default=3e-4)
@@ -172,9 +195,9 @@ def build_variant_encoder(n_borzoi_dimensions, variant_encoder_type, architectur
 	return tf.keras.Model(inputs=borzoi_input, outputs=predicted_variant_effect, name='variant_effect_predictor')
 
 
-def train_model(train_gene_based_model_data, val_gene_based_model_data, test_index, learning_rate, l2_variant_reg_strength, variant_encoder_type, variant_encoder_architecture, res_mlp_blocks_per_stage, res_mlp_dropout_rate, gene_to_sdev_log_tpm, max_epochs=100, use_held_out_genes_for_validation=True):
+def train_model(train_gene_based_model_data, val_gene_based_model_data, test_index, learning_rate, l2_variant_reg_strength, variant_encoder_type, variant_encoder_architecture, res_mlp_blocks_per_stage, res_mlp_dropout_rate, gene_to_sdev_log_tpm, gene_to_expr_vec, max_epochs=100, use_held_out_genes_for_validation=True):
 	# Load in number data dimensions
-	n_borzoi_dimensions = np.load(train_gene_based_model_data[0][6]).shape[1]
+	n_borzoi_dimensions = np.load(train_gene_based_model_data[0][6]).shape[1] + len(gene_to_expr_vec[[*gene_to_expr_vec][0]])
 
 	test_tissue_indices = np.asarray([test_index])
 
@@ -183,6 +206,9 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, test_ind
 	borzoi_feature_means = borzoi_feature_means.astype(np.float32)
 	borzoi_feature_sdevs[borzoi_feature_sdevs == 0.0] = 1.0
 	borzoi_feature_inv_sdevs = 1.0*(1.0 / borzoi_feature_sdevs).astype(np.float32)
+	expr_feature_means, expr_feature_sdevs = extract_mean_and_sdev_of_each_expr_feature(train_gene_based_model_data, gene_to_expr_vec)
+	expr_feature_means = expr_feature_means.astype(np.float32)
+	expr_feature_inv_sdevs = 1.0*(1.0 / expr_feature_sdevs).astype(np.float32)
 
 	n_training_genes = len(train_gene_based_model_data)
 	best_val_loss = np.inf
@@ -296,6 +322,13 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, test_ind
 			gene_zeds = gene_zeds[valid_row_indices, :][:, test_tissue_indices]
 			gene_afs = gene_afs[valid_row_indices]
 
+			if gene_name not in gene_to_expr_vec:
+				continue
+			expr_vec = get_standardized_expr_vec(gene_name, gene_to_expr_vec, expr_feature_means, expr_feature_inv_sdevs)
+
+			expr_mat = np.tile(expr_vec, (gene_borzoi_preds.shape[0], 1))
+			gene_borzoi_preds = np.concatenate([gene_borzoi_preds, expr_mat], axis=1)
+
 			if gene_LD.shape[0] != gene_inv_LD.shape[0]:
 				print('assumption erroror')
 				pdb.set_trace()
@@ -335,6 +368,13 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, test_ind
 			gene_N_eff = gene_N_eff[valid_row_indices, :][:, test_tissue_indices]
 			gene_zeds = gene_zeds[valid_row_indices, :][:, test_tissue_indices]
 			gene_afs = gene_afs[valid_row_indices]
+
+			if gene_name not in gene_to_expr_vec:
+				continue
+			expr_vec = get_standardized_expr_vec(gene_name, gene_to_expr_vec, expr_feature_means, expr_feature_inv_sdevs)
+
+			expr_mat = np.tile(expr_vec, (gene_borzoi_preds.shape[0], 1))
+			gene_borzoi_preds = np.concatenate([gene_borzoi_preds, expr_mat], axis=1)
 
 			gene_N_eff = gene_N_eff/np.square(gene_sdev)
 
@@ -383,7 +423,7 @@ def train_model(train_gene_based_model_data, val_gene_based_model_data, test_ind
 	return variant_encoder
 
 
-def evaluate_model(variant_encoder, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, test_tissue_index, gene_to_sdev_log_tpm, model_training_output_stem):
+def evaluate_model(variant_encoder, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, test_tissue_index, gene_to_sdev_log_tpm, gene_to_expr_vec, model_training_output_stem):
 	train_gene_names = {gene_data[0] for gene_data in train_gene_based_model_data}
 	val_gene_names = {gene_data[0] for gene_data in val_gene_based_model_data}
 	test_gene_names = {gene_data[0] for gene_data in test_gene_based_model_data}
@@ -392,6 +432,9 @@ def evaluate_model(variant_encoder, gene_based_model_data, train_gene_based_mode
 	borzoi_feature_means = borzoi_feature_means.astype(np.float32)
 	borzoi_feature_sdevs[borzoi_feature_sdevs == 0.0] = 1.0
 	borzoi_feature_inv_sdevs = 1.0*(1.0 / borzoi_feature_sdevs).astype(np.float32)
+	expr_feature_means, expr_feature_sdevs = extract_mean_and_sdev_of_each_expr_feature(train_gene_based_model_data, gene_to_expr_vec)
+	expr_feature_means = expr_feature_means.astype(np.float32)
+	expr_feature_inv_sdevs = 1.0*(1.0 / expr_feature_sdevs).astype(np.float32)
 
 	output_file = model_training_output_stem + '_all_gene_test_tissue_evaluation.txt'
 	variant_output_file = model_training_output_stem + '_all_variant_gene_pairs_test_tissue_evaluation.txt'
@@ -435,6 +478,13 @@ def evaluate_model(variant_encoder, gene_based_model_data, train_gene_based_mode
 			gene_zeds = gene_zeds[valid_row_indices, :][:, [test_tissue_index]]
 			gene_variant_names = gene_variant_names[valid_row_indices]
 			gene_afs = gene_afs[valid_row_indices]
+
+			if gene_name not in gene_to_expr_vec:
+				t.write(gene_name + '\t' + gene_split + '\t' + str(n_gene_snps) + '\tnan\tnan\tnan\n')
+				continue
+			expr_vec = get_standardized_expr_vec(gene_name, gene_to_expr_vec, expr_feature_means, expr_feature_inv_sdevs)
+			expr_mat = np.tile(expr_vec, (gene_borzoi_preds.shape[0], 1))
+			gene_borzoi_preds = np.concatenate([gene_borzoi_preds, expr_mat], axis=1)
 
 			gene_LD_tf = tf.convert_to_tensor(gene_LD.astype(np.float32))
 			gene_inv_LD_tf = tf.convert_to_tensor(gene_inv_LD.astype(np.float32))
@@ -539,6 +589,23 @@ def create_mapping_from_gene_name_to_sdev_log_tpm(gtex_expression_tpm_file, gtex
 
 	return gene_to_sdev_dicti
 
+def create_mapping_from_gene_name_to_expr_vec(alt_expr_file):
+	dicti = {}
+	f = open(alt_expr_file)
+	head_count = 0
+	for line in f:
+		line = line.strip()
+		data = line.split('\t')
+		if head_count == 0:
+			head_count = head_count + 1
+			continue
+		ens_id =data[0].split('.')[0]
+		expr_vec = np.asarray(data[1:]).astype(float)
+		dicti[ens_id] = expr_vec
+	f.close()
+
+	return dicti
+
 
 def main():
 	args = parse_args()
@@ -558,8 +625,12 @@ def main():
 	res_mlp_dropout_rate = args.res_mlp_dropout_rate
 	gtex_expression_tpm_file = args.expression_tpm_file
 	gtex_expression_sample_file = args.expression_sample_file
+	alt_expr_file = args.alt_expr_file
+
 
 	np.random.seed(1)
+
+	gene_to_expr_vec = create_mapping_from_gene_name_to_expr_vec(alt_expr_file)
 
 	gene_to_sdev_log_tpm = create_mapping_from_gene_name_to_sdev_log_tpm(gtex_expression_tpm_file, gtex_expression_sample_file, test_tissue)
 
@@ -615,11 +686,12 @@ def main():
 		res_mlp_blocks_per_stage,
 		res_mlp_dropout_rate,
 		gene_to_sdev_log_tpm,
+		gene_to_expr_vec,
 		max_epochs=max_epochs,
 		use_held_out_genes_for_validation=use_held_out_genes_for_validation
 	)
 	# Evaluate
-	evaluate_model(variant_encoder, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, test_tissue_index, gene_to_sdev_log_tpm, model_training_output_stem)
+	evaluate_model(variant_encoder, gene_based_model_data, train_gene_based_model_data, val_gene_based_model_data, test_gene_based_model_data, test_tissue_index, gene_to_sdev_log_tpm,gene_to_expr_vec, model_training_output_stem)
 	# Save model results
 	variant_encoder.save(model_training_output_stem + '_variant_encoder.keras')
 

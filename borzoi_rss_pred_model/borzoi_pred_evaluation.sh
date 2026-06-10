@@ -15,5 +15,8 @@ source ~/.bashrc
 conda activate borzoi
 
 echo $gtex_tissue_name
-
+if false; then
 python borzoi_pred_evaluation.py $gtex_tissue_name $borzoi_target_index $borzoi_eval_output_stem $prediction_inv_ld_input_data_summary_filestem $gtex_tissue_names_file
+fi
+
+python borzoi_pred_evaluation_debugger.py $gtex_tissue_name $borzoi_target_index $borzoi_eval_output_stem $prediction_inv_ld_input_data_summary_filestem $gtex_tissue_names_file

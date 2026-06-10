@@ -179,13 +179,12 @@ fi
 
 organized_results_file=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_organized_test_results.txt"
 organized_results_file2=${model_training_dir}"expression_reduced_eqtls_nPCs_"${n_pcs}"_seed"${seed}"_het_var_organized_test_results.txt"
-
 if false; then
 source ~/.bashrc
 conda activate plink_env
-fi
-Rscript visualize_results.R $organized_results_file $organized_results_file2 $visualization_dir
 
+Rscript visualize_results.R $organized_results_file $organized_results_file2 $visualization_dir
+fi
 
 
 

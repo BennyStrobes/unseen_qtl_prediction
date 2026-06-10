@@ -164,6 +164,17 @@ make_heat_scatter <- function(per_tissue_df, titler, bins = 80) {
     )
 }
 
+mean_ci <- function(x) {
+  x <- x[is.finite(x)]
+  m <- mean(x)
+  se <- sd(x) / sqrt(length(x))
+  ci <- m + c(-1, 1) * qt(0.975, df = length(x) - 1) * se
+
+  c(mean = m, lower_95 = ci[1], upper_95 = ci[2])
+}
+
+
+
 ################
 # Command line args
 organized_results_file = args[1]
@@ -178,10 +189,10 @@ df = read.table(organized_results_file, header=TRUE, sep="\t")
 
 df2 = read.table(organized_results_file2, header=TRUE, sep="\t")
 
-if (FALSE) {
-indices = (as.character(df$tissue) != "Thyroid") & (df$pred_resid_var < 0.01)
-df <- df[indices,]
-}
+print(mean_ci(df$correlation))
+print(mean_ci(df$nn_correlation))
+print(mean_ci(df$correlation - df$nn_correlation))
+
 
 
 # Make average loss bar plot
@@ -189,64 +200,3 @@ avg_loss_barplot <- make_average_loss_barplot(df, df2)
 output_file <- paste0(visualization_dir, "avg_loss_bar_plot.pdf")
 ggsave(avg_loss_barplot, file=output_file, width=7.2/3, height=2.9, units="in")
 
-
-
-tissue_name="Lung"
-per_tissue_results_file <- paste0("/lab-share/CHIP-Strober-e2/Public/ben/unseen_qtl_prediction/marginal_predictions/modeling_training/expression_reduced_eqtls_nPCs_20_seed1_test_tissue_", tissue_name,"_het_var_multi_restart_test_preds.txt")
-per_tissue_df <- read.table(per_tissue_results_file, header=TRUE)
-scatter <- make_hex_scatter(per_tissue_df, paste0(tissue_name," tissue"))
-
-
-joint <- plot_grid(scatter + theme(legend.position="none"), avg_loss_barplot, ncol=2, rel_widths=c(1,.85), labels=c("a", "b"))
-output_file <- paste0(visualization_dir, "r01_plot.pdf")
-ggsave(joint, file=output_file, width=2*7.2/3, height=2.95, units="in")
-
-
-
-# Make pred var vs resid var scatter
-if (FALSE) {
-pp <- make_pred_var_vs_resid_var_scatter(df)
-output_file <- paste0(visualization_dir, "pred_var_vs_resid_var_scatter.pdf")
-ggsave(pp, file=output_file, width=7.2, height=4.5, units="in")
-}
-
-
-if (FALSE) {
-
-unique_tissues <- unique(as.character(df$tissue))
-
-for (tiss_iter in 1:length(unique_tissues)) {
-
-tissue_name <- unique_tissues[tiss_iter]
-
-if (tissue_name != "Bladder") {
-
-per_tissue_results_file <- paste0("/lab-share/CHIP-Strober-e2/Public/ben/unseen_qtl_prediction/marginal_predictions/modeling_training/expression_reduced_eqtls_nPCs_20_seed1_test_tissue_", tissue_name,"_het_var_multi_restart_test_preds.txt")
-per_tissue_df <- read.table(per_tissue_results_file, header=TRUE)
-pp <- make_hex_scatter(per_tissue_df, paste0(tissue_name," eQTLs"))
-output_file <- paste0(visualization_dir, tissue_name,"_scatter.pdf")
-ggsave(pp + theme(legend.position="none"), file=output_file, width=7.2/3, height=3.2, units="in")
-}
-}
-}
-
-
-
-
-if (FALSE) {
-# Make loss scatter
-pp <- make_factorization_vs_nn_loss_scatter(df)
-output_file <- paste0(visualization_dir, "factorization_vs_nn_loss_scatter.pdf")
-ggsave(pp, file=output_file, width=7.2, height=4.5, units="in")
-
-# Make correlation scatter
-pp <- make_factorization_vs_nn_correlation_scatter(df)
-output_file <- paste0(visualization_dir, "factorization_vs_nn_correlation_scatter.pdf")
-ggsave(pp, file=output_file, width=7.2, height=4.5, units="in")
-
-# Make sample size vs loss scatter
-pp <- make_sample_size_vs_loss_scatter(df)
-output_file <- paste0(visualization_dir, "factorization_loss_vs_sample_size.pdf")
-ggsave(pp, file=output_file, width=7.2, height=4.5, units="in")
-
-}
