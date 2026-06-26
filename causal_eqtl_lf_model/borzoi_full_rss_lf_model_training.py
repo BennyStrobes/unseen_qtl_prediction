@@ -148,7 +148,7 @@ def parse_args():
 	return parser.parse_args()
 
 
-def train_model(gene_based_model_data, gene_expression_data, train_tissue_indices, val_tissue_indices, learning_rate, l2_tissue_reg_strength, l1_variant_reg_strength, n_factors, beta_scale=1e-8, max_epochs=100):
+def train_model(gene_based_model_data, gene_expression_data, train_tissue_indices, val_tissue_indices, learning_rate, l2_tissue_reg_strength, l1_variant_reg_strength, n_factors, model_training_output_stem, beta_scale=1e-8, max_epochs=100):
 	# Load in number data dimensions
 	#n_borzoi_dimensions = np.load(gene_based_model_data[0][6]).shape[1]
 	n_expr_gene_dimensions = gene_expression_data.shape[0]
@@ -255,6 +255,10 @@ def train_model(gene_based_model_data, gene_expression_data, train_tissue_indice
 		return loss, corr
 
 
+	# Per-epoch training log
+	training_log_file = open(model_training_output_stem + '_training_log.txt', 'w')
+	training_log_file.write('epoch\ttrain_loss\tval_loss\tval_corr\tbest\n')
+
 	# Epoch training
 	for epoch_iter in range(max_epochs):
 		print('epoch ' + str(epoch_iter), flush=True)
@@ -348,7 +352,10 @@ def train_model(gene_based_model_data, gene_expression_data, train_tissue_indice
 			status = ' best'
 		print((t2-t1)/60.0, 'minutes', flush=True)
 		print('epoch ' + str(epoch_iter) + ' train_loss=' + str(np.mean(epoch_train_losses)) + ' val_loss=' + str(epoch_val_loss) + ' val_corr=' + str(np.mean(epoch_val_corrs)) + status, flush=True)
+		training_log_file.write(str(epoch_iter) + '\t' + str(np.mean(epoch_train_losses)) + '\t' + str(epoch_val_loss) + '\t' + str(np.mean(epoch_val_corrs)) + '\t' + str(status == ' best') + '\n')
+		training_log_file.flush()
 
+	training_log_file.close()
 
 	if best_tissue_weights is not None:
 		tissue_encoder.set_weights(best_tissue_weights)
@@ -508,7 +515,7 @@ def main():
 	###########################
 	# Ready for model training
 	############################
-	max_epochs=100
+	max_epochs=200
 
 	# Train
 	tissue_encoder, variant_embedding, gene_to_u_block = train_model(
@@ -520,6 +527,7 @@ def main():
 		l2_tissue_reg_strength,
 		l1_variant_reg_strength,
 		n_factors,
+		model_training_output_stem,
 		beta_scale=beta_scale,
 		max_epochs=max_epochs
 	)

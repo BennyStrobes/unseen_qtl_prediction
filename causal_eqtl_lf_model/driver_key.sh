@@ -85,10 +85,24 @@ fi
 ########################################
 # Hold out single tissue model training
 ########################################
+if false; then
 test_tissue="Adipose_Visceral_Omentum"
 
 # Sweep over learning rate, number of latent factors, tissue-encoder L2, and variant (U) L1
-if false; then
+for learning_rate in "3e-4" "1e-3" "3e-3"; do
+for n_factors in "10" "20"; do
+for l2_tissue_reg_strength in "1e-5" "1e-4" "1e-3"; do
+for l1_variant_reg_strength in "0.0" "1e-6" "1e-4" "1e-2"; do
+	model_training_output_stem=${model_training_dir}"full_rss_lf_model_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l1v_"${l1_variant_reg_strength}"_var_arch_K_"${n_factors}
+	sbatch borzoi_full_rss_lf_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l1_variant_reg_strength $n_factors
+done
+done
+done
+done
+
+test_tissue="Muscle_Skeletal"
+
+# Sweep over learning rate, number of latent factors, tissue-encoder L2, and variant (U) L1
 for learning_rate in "3e-4" "1e-3" "3e-3"; do
 for n_factors in "10" "20"; do
 for l2_tissue_reg_strength in "1e-5" "1e-4" "1e-3"; do
