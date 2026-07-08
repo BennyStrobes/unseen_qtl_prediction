@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -t 0-35:30                         # Runtime in D-HH:MM format
+#SBATCH -t 0-55:30                         # Runtime in D-HH:MM format
 #SBATCH -p bch-compute                        # Partition to run in
 #SBATCH --mem=8GB 
 
@@ -17,6 +17,7 @@ l2_tissue_reg_strength="$7"
 l1_variant_reg_strength="$8"
 n_factors="$9"
 
+echo $gtex_tissue_names_file
 echo $model_training_output_stem
 
 date
