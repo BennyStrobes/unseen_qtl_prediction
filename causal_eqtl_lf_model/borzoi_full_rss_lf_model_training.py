@@ -31,7 +31,7 @@ def load_in_tissue_names(gtex_tissue_names_file):
 
 def load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_snps_per_gene=50):
 	print('################################')
-	print('Currently subsetting to 1/5th the number of genes for development purposes. NEEED TO CHANGE IN FUTURE')
+	print('Currently subsetting to 1/10th the number of genes for development purposes. NEEED TO CHANGE IN FUTURE')
 	print('#################################')
 
 	arr = []
@@ -59,7 +59,7 @@ def load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_sn
 				continue
 			counter = counter + 1
 
-			if np.random.choice(np.arange(5)) == 1:
+			if np.random.choice(np.arange(10)) == 1:
 				arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, inv_ld_file, borzoi_file, n_snps_per_gene))
 			#indices.append(counter)
 		f.close()
@@ -423,7 +423,7 @@ def main():
 	###########################
 	# Ready for model training
 	############################
-	max_epochs=400
+	max_epochs=150
 
 	# Train
 	tissue_encoder, variant_embedding, gene_to_u_block = train_model(
