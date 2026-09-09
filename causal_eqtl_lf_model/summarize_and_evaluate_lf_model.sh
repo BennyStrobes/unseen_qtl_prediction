@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -t 0-06:00                         # Runtime in D-HH:MM format
+#SBATCH -t 0-01:00                         # Runtime in D-HH:MM format
 #SBATCH -p bch-compute                        # Partition to run in
 #SBATCH --mem=8GB
 

@@ -42,7 +42,7 @@ processed_expression_dir=${output_root_dir}"processed_gene_expression/"
 # Training data input directory
 model_training_dir=${output_root_dir}"model_training/"
 
-# Training data input directory
+# Visualization directory
 visualization_dir=${output_root_dir}"visualization/"
 
 
@@ -107,7 +107,6 @@ fi
 
 
 
-
 ########################################
 # Summarize training logs + evaluate best model per tissue (one batch job per tissue)
 ########################################
@@ -116,4 +115,15 @@ for test_tissue in $(tail -n +2 $borzoi_gtex_tissues_file | cut -f1); do
 	sbatch summarize_and_evaluate_lf_model.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_dir
 done
 fi
+
+
+
+
+
+########################################
+# Visualize summarized results (hyperparameter sweep, per-tissue test performance, example-tissue plots)
+########################################
+source ~/.bashrc
+conda activate plink_env
+Rscript visualize_lf_model_results.R $borzoi_gtex_tissues_file $model_training_dir $visualization_dir
 
