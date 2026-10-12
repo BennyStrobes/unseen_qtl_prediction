@@ -103,9 +103,13 @@ done
 fi
 
 
-
-
-
+test_tissue="Liver"
+learning_rate="5e-3"
+n_factors="10"
+l2_tissue_reg_strength="1e-4"
+l1_variant_reg_strength="1e-4"
+	model_training_output_stem=${model_training_dir}"full_rss_lf_model_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l1v_"${l1_variant_reg_strength}"_var_arch_K_"${n_factors}
+	sh borzoi_full_rss_lf_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l1_variant_reg_strength $n_factors
 
 ########################################
 # Summarize training logs + evaluate best model per tissue (one batch job per tissue)
@@ -123,7 +127,8 @@ fi
 ########################################
 # Visualize summarized results (hyperparameter sweep, per-tissue test performance, example-tissue plots)
 ########################################
+if false; then
 source ~/.bashrc
 conda activate plink_env
 Rscript visualize_lf_model_results.R $borzoi_gtex_tissues_file $model_training_dir $visualization_dir
-
+fi
