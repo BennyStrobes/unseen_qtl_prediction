@@ -87,12 +87,25 @@ fi
 ########################################
 
 # Sweep over test tissue (from borzoi_gtex_tissues_file), learning rate, number of latent factors, tissue-encoder L2, and variant (U) L1
+learning_rate="3e-4"
+n_factors="10"
+l2_tissue_reg_strength="1e-4"
+l1_variant_reg_strength="0"
+u_ridge_frac="1e-1"
 if false; then
 for test_tissue in $(tail -n +2 $borzoi_gtex_tissues_file | cut -f1); do
-for learning_rate in "1e-3" "5e-3" "1e-2"; do
+	model_training_output_stem=${model_training_dir}"full_rss_lf_model_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l1v_"${l1_variant_reg_strength}"_ridge_"${u_ridge_frac}"_var_arch_K_"${n_factors}
+	sbatch borzoi_full_rss_lf_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l1_variant_reg_strength $n_factors $u_ridge_frac
+done
+fi
+
+
+if false; then
+for test_tissue in $(tail -n +2 $borzoi_gtex_tissues_file | cut -f1); do
+for learning_rate in "1e-4" "3e-4" "1e-3"; do
 for n_factors in "10"; do
-for l2_tissue_reg_strength in "1e-4"; do
-for l1_variant_reg_strength in "1e-4"; do
+for l2_tissue_reg_strength in "1e-6" "1e-4" "1e-2"; do
+for l1_variant_reg_strength in "0" "1" "100"; do
 	model_training_output_stem=${model_training_dir}"full_rss_lf_model_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l1v_"${l1_variant_reg_strength}"_var_arch_K_"${n_factors}
 	sbatch borzoi_full_rss_lf_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l1_variant_reg_strength $n_factors
 done
@@ -102,23 +115,53 @@ done
 done
 fi
 
-
+if false; then
 test_tissue="Liver"
-learning_rate="5e-3"
-n_factors="10"
-l2_tissue_reg_strength="1e-4"
-l1_variant_reg_strength="1e-4"
-	model_training_output_stem=${model_training_dir}"full_rss_lf_model_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l1v_"${l1_variant_reg_strength}"_var_arch_K_"${n_factors}
-	sh borzoi_full_rss_lf_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l1_variant_reg_strength $n_factors
+# L1 fixed at 0 (soft-threshold showed no benefit); sweep the ridge on the closed-form U solve instead.
+for learning_rate in "1e-4" "3e-4" "1e-3"; do
+for n_factors in "10"; do
+for l2_tissue_reg_strength in "1e-4" "1e-2"; do
+for l1_variant_reg_strength in "0"; do
+for u_ridge_frac in "1e-4" "1e-3" "1e-2" "1e-1" "1"; do
+	model_training_output_stem=${model_training_dir}"full_rss_lf_model_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l1v_"${l1_variant_reg_strength}"_ridge_"${u_ridge_frac}"_var_arch_K_"${n_factors}
+	sbatch borzoi_full_rss_lf_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l1_variant_reg_strength $n_factors $u_ridge_frac
+done
+done
+done
+done
+done
+
+
+
+
+
+test_tissue="Whole_Blood"
+# L1 fixed at 0 (soft-threshold showed no benefit); sweep the ridge on the closed-form U solve instead.
+for learning_rate in "1e-4" "3e-4" "1e-3"; do
+for n_factors in "10"; do
+for l2_tissue_reg_strength in "1e-4" "1e-2"; do
+for l1_variant_reg_strength in "0"; do
+for u_ridge_frac in "1e-4" "1e-3" "1e-2" "1e-1" "1"; do
+	model_training_output_stem=${model_training_dir}"full_rss_lf_model_train_test_tissue_"${test_tissue}"_lr_"${learning_rate}"_l2t_"${l2_tissue_reg_strength}"_l1v_"${l1_variant_reg_strength}"_ridge_"${u_ridge_frac}"_var_arch_K_"${n_factors}
+	sbatch borzoi_full_rss_lf_model_training.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_output_stem $learning_rate $l2_tissue_reg_strength $l1_variant_reg_strength $n_factors $u_ridge_frac
+done
+done
+done
+done
+done
+fi
 
 ########################################
 # Summarize training logs + evaluate best model per tissue (one batch job per tissue)
 ########################################
+# Three-tissue sweep (Liver, Adipose_Subcutaneous, Whole_Blood); switch back to the full tissue
+# list ($(tail -n +2 $borzoi_gtex_tissues_file | cut -f1)) once a setting is run across all tissues.
 if false; then
-for test_tissue in $(tail -n +2 $borzoi_gtex_tissues_file | cut -f1); do
+for test_tissue in "Liver" "Whole_Blood"; do
 	sbatch summarize_and_evaluate_lf_model.sh $gtex_tissue_names_file $single_samp_per_tissue_expr_file $prediction_inv_ld_input_data_summary_filestem $test_tissue $model_training_dir
 done
 fi
+
 
 
 

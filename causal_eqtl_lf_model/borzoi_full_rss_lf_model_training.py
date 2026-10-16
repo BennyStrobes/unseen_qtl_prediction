@@ -31,7 +31,7 @@ def load_in_tissue_names(gtex_tissue_names_file):
 
 def load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_snps_per_gene=50):
 	print('################################')
-	print('Currently subsetting to 1/10th the number of genes for development purposes. NEEED TO CHANGE IN FUTURE')
+	print('Currently subsetting to 1/20th the number of genes for development purposes. NEEED TO CHANGE IN FUTURE')
 	print('#################################')
 
 	arr = []
@@ -59,7 +59,7 @@ def load_in_gene_based_model_data(prediction_input_data_summary_filestem, min_sn
 				continue
 			counter = counter + 1
 
-			if np.random.choice(np.arange(10)) == 1:
+			if np.random.choice(np.arange(20)) == 1:
 				arr.append((gene_name, snp_summary_file, zed_file, N_eff_file, ld_file, inv_ld_file, borzoi_file, n_snps_per_gene))
 			#indices.append(counter)
 		f.close()
@@ -142,8 +142,8 @@ def parse_args():
 	parser.add_argument('--learning-rate', required=False, type=float, default=3e-4)
 	parser.add_argument('--l2-tissue-reg-strength', required=False, type=float, default=1e-5)
 	parser.add_argument('--l1-variant-reg-strength', required=False, type=float, default=1.0)
-	parser.add_argument('--beta-scale', required=False, type=float, default=1e-8,
-						help='Scale c on the causal effect beta = c * (U . V^T); constrains prediction magnitude.')
+	parser.add_argument('--beta-scale', required=False, type=float, default=1.0,
+						help='Scale c on the causal effect beta = c * (U . V^T). Default 1.0: the effect-size scale is set by the U init instead (see train_model).')
 	parser.add_argument('--n-factors', required=False, type=int, default=10)
 	return parser.parse_args()
 
@@ -189,12 +189,19 @@ def train_model(gene_based_model_data, gene_expression_data, train_tissue_indice
 		u_offset += gene_n_snps
 	n_total_variants = u_offset
 
+	# Init scale for U. Each causal effect beta_ij = sum_k U_ik V_jk has variance K * var(U) when
+	# V ~ O(1) (glorot-initialized encoder). Target a per-SNP standardized causal variance of
+	# 0.1 / M (cis-h2 of ~0.1 spread over a gene's M SNPs), using the mean SNP count across
+	# training genes so every gene's block starts at the same scale.
+	mean_snps_per_gene = n_total_variants / float(n_training_genes)
+	u_init_stddev = np.sqrt(0.1 / (n_factors * mean_snps_per_gene))
+
 	# L1 on U is applied manually in train_step, on only the gene's gathered rows (per-gene SGD),
 	# rather than via an embeddings_regularizer that would decay the whole table on every step.
 	variant_embedding = tf.keras.layers.Embedding(
 		input_dim=n_total_variants,
 		output_dim=n_factors,
-		embeddings_initializer=tf.keras.initializers.RandomNormal(stddev=1e-3),
+		embeddings_initializer=tf.keras.initializers.RandomNormal(stddev=u_init_stddev),
 		name='variant_embedding',
 	)
 	variant_embedding.build((None,))
@@ -383,6 +390,8 @@ def main():
 	n_factors = args.n_factors
 
 	np.random.seed(1)
+	# Seed TF too (encoder kernels + U embedding init) so runs differ only in data, not init.
+	tf.random.set_seed(1)
 
 	# Load in all tissues names
 	all_tissue_names = load_in_tissue_names(gtex_tissue_names_file)
@@ -416,6 +425,13 @@ def main():
 	gene_means = np.mean(gene_expression_data[:, train_tissue_indices], axis=1, keepdims=True)
 	gene_stds = np.std(gene_expression_data[:, train_tissue_indices], axis=1, keepdims=True)
 	gene_stds[gene_stds == 0.0] = 1.0
+	# Scale the standardized expression down by the number of genes. Adam moves every weight by ~lr
+	# per step, so the first encoder layer's output shifts by ~lr * sum(|inputs|); with ~19k
+	# standardized genes that is ~15,000 * lr and the encoder blows up in a few steps. Dividing by
+	# n_genes brings that sum to ~1. Folded into gene_stds so the saved eval metadata (used to
+	# standardize the test tissue in evaluate_lf_model_on_test_tissue.py) applies the same scaling.
+	n_expression_genes = gene_expression_data.shape[0]
+	gene_stds = gene_stds * n_expression_genes
 	gene_expression_data = (gene_expression_data - gene_means) / gene_stds
 
 
@@ -423,7 +439,7 @@ def main():
 	###########################
 	# Ready for model training
 	############################
-	max_epochs=150
+	max_epochs=300
 
 	# Train
 	tissue_encoder, variant_embedding, gene_to_u_block = train_model(

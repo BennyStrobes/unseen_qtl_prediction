@@ -31,7 +31,9 @@ load_hyperparameter_sweep_summary <- function(tissue_names, model_training_dir) 
 			print(paste0("Skipping (missing training summary): ", summary_file))
 			next
 		}
-		tissue_df = read.table(summary_file, header=TRUE, sep="\t", stringsAsFactors=FALSE, na.strings=c("NA", "nan", "NaN"), colClasses=c(test_tissue="character", learning_rate="character", l2_tissue_reg_strength="character", l1_variant_reg_strength="character", n_factors="character"))
+		tissue_df = read.table(summary_file, header=TRUE, sep="\t", stringsAsFactors=FALSE, na.strings=c("NA", "nan", "NaN"), colClasses=c(test_tissue="character", learning_rate="character", l2_tissue_reg_strength="character", l1_variant_reg_strength="character", n_factors="character", u_ridge_frac="character"))
+		# Older summaries have no u_ridge_frac column
+		if (!("u_ridge_frac" %in% colnames(tissue_df))) { tissue_df$u_ridge_frac = "NA" }
 		if (nrow(tissue_df) == 0) {
 			print(paste0("Skipping (no models in training summary): ", summary_file))
 			next
@@ -46,7 +48,7 @@ load_hyperparameter_sweep_summary <- function(tissue_names, model_training_dir) 
 	learning_rates = learning_rates[order(as.numeric(learning_rates))]
 	sweep_df$learning_rate = factor(sweep_df$learning_rate, levels=learning_rates)
 	# One line per (test tissue, non-learning-rate hyperparameter setting)
-	sweep_df$config_group = paste(sweep_df$test_tissue, sweep_df$l2_tissue_reg_strength, sweep_df$l1_variant_reg_strength, sweep_df$n_factors, sep="_")
+	sweep_df$config_group = paste(sweep_df$test_tissue, sweep_df$l2_tissue_reg_strength, sweep_df$l1_variant_reg_strength, sweep_df$u_ridge_frac, sweep_df$n_factors, sep="_")
 	return(sweep_df)
 }
 

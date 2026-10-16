@@ -67,7 +67,9 @@ def load_all_gene_data_map(prediction_input_data_summary_filestem):
 def find_best_model_stem(training_summary_file, model_training_dir):
 	# training_summary columns (from summarize_lf_model_training_logs.py):
 	# test_tissue  learning_rate  l2_tissue_reg_strength  l1_variant_reg_strength  n_factors
-	#   best_fit_iter  train_loss  val_loss  val_corr
+	#   best_fit_iter  train_loss  val_loss  val_corr  [u_ridge_frac]
+	# u_ridge_frac is a trailing optional column ('NA' when the stem carried no _ridge_ token);
+	# older 9-column summaries are still accepted.
 	# Return the model-output stem of the row with the lowest validation loss.
 	head_count = 0
 	best_val_loss = np.inf
@@ -79,19 +81,23 @@ def find_best_model_stem(training_summary_file, model_training_dir):
 		if head_count == 0:
 			head_count = head_count + 1
 			continue
-		if len(data) != 9:
+		if len(data) not in (9, 10):
 			continue
 		val_loss = float(data[7])
 		if val_loss < best_val_loss:
 			best_val_loss = val_loss
 			best_params = {'test_tissue': data[0], 'lr': data[1], 'l2t': data[2],
-				'l1v': data[3], 'n_factors': data[4], 'val_loss': val_loss}
+				'l1v': data[3], 'n_factors': data[4], 'val_loss': val_loss,
+				'ridge': data[9] if len(data) == 10 else 'NA'}
 	f.close()
 	if best_params is None:
 		raise ValueError('No usable models found in training summary file: ' + training_summary_file)
 	stem = model_training_dir + 'full_rss_lf_model_train_test_tissue_' + best_params['test_tissue'] + \
 		'_lr_' + best_params['lr'] + '_l2t_' + best_params['l2t'] + \
-		'_l1v_' + best_params['l1v'] + '_var_arch_K_' + best_params['n_factors']
+		'_l1v_' + best_params['l1v']
+	if best_params['ridge'] != 'NA':
+		stem = stem + '_ridge_' + best_params['ridge']
+	stem = stem + '_var_arch_K_' + best_params['n_factors']
 	return stem, best_params
 
 
